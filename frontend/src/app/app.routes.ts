@@ -18,6 +18,10 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [
       {
+        path: 'overview',
+        loadComponent: () => import('./pages/overview.component').then((m) => m.OverviewComponent),
+      },
+      {
         path: 'flags',
         loadComponent: () => import('./pages/flags-list.component').then((m) => m.FlagsListComponent),
       },
@@ -29,7 +33,7 @@ export const routes: Routes = [
         path: 'config',
         loadComponent: () => import('./pages/config.component').then((m) => m.ConfigComponent),
       },
-      { path: '', pathMatch: 'full', redirectTo: 'flags' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
     ],
   },
   { path: '**', redirectTo: '' },

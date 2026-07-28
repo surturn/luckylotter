@@ -86,6 +86,36 @@ export interface PageResponse<T> {
   totalPages: number;
 }
 
+/**
+ * Recovery carries its own denominator: "100%" over two flags and "68%" over
+ * four hundred are different claims, and the card shows which one it is.
+ * `percent` is null when there are no flags at all — no rate yet, which is not
+ * a rate of zero.
+ */
+export interface RecoveryRate {
+  recovered: number;
+  totalFlags: number;
+  percent: number | null;
+}
+
+export interface WeeklyPoint {
+  weekStart: string;
+  flagsRaised: number;
+  customersRecovered: number;
+}
+
+export interface OverviewStats {
+  customersMonitored: number;
+  customersBelowThreshold: number;
+  activeFlags: number;
+  resolvedFlags: number;
+  offersSent: number;
+  offersNoContact: number;
+  recoveryRate: RecoveryRate;
+  /** Always 8 entries, oldest first, including weeks with no activity. */
+  weeklySeries: WeeklyPoint[];
+}
+
 export interface ScanSummary {
   businessId: string;
   scanned: number;

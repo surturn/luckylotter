@@ -19,6 +19,7 @@ import { AuthService } from './core/auth.service';
         </div>
 
         <nav aria-label="Main">
+          <a routerLink="/overview" routerLinkActive="active">Overview</a>
           <a routerLink="/flags" routerLinkActive="active">Flagged customers</a>
           <a routerLink="/config" routerLinkActive="active">Trigger settings</a>
         </nav>

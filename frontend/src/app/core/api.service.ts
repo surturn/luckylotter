@@ -7,6 +7,7 @@ import {
   FlagDetail,
   FlagStatus,
   FlagSummary,
+  OverviewStats,
   PageResponse,
   ScanSummary,
 } from './api.models';
@@ -34,6 +35,11 @@ export class ApiService {
 
   getFlag(id: string): Observable<FlagDetail> {
     return this.http.get<FlagDetail>(`/v1/flags/${id}`);
+  }
+
+  /** Every counter behind the overview screen, aggregated server-side (FR-7). */
+  getOverview(): Observable<OverviewStats> {
+    return this.http.get<OverviewStats>('/v1/stats/overview');
   }
 
   /** How many flagged customers have no contact details at all (FR-5). */

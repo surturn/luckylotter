@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,4 +47,42 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
                                                 Pageable pageable);
 
     Optional<RetentionFlag> findByIdAndBusinessId(UUID id, UUID businessId);
+
+    long countByBusinessIdAndStatus(UUID businessId, FlagStatus status);
+
+    /**
+     * Flags opened per week, for the overview chart (FR-7).
+     *
+     * <p>Native because {@code date_trunc} has no JPQL equivalent, and grouping
+     * in the database beats shipping every flag to the JVM to be counted.
+     * {@code AT TIME ZONE 'UTC'} pins the week boundary so the buckets don't
+     * shift with the database session's timezone.
+     *
+     * <p>Weeks with no activity are simply absent from the result — the service
+     * fills them, because a chart that omits quiet weeks compresses time and
+     * misreports the trend.
+     */
+    @Query(value = """
+        SELECT date_trunc('week', flagged_at AT TIME ZONE 'UTC') AS "weekStart",
+               COUNT(*) AS "total"
+        FROM retention_flags
+        WHERE business_id = :businessId
+          AND flagged_at >= :from
+        GROUP BY 1
+        """, nativeQuery = true)
+    List<WeeklyCount> countFlagsRaisedByWeek(@Param("businessId") UUID businessId,
+                                             @Param("from") Instant from);
+
+    /** As {@link #countFlagsRaisedByWeek}, but by the week the customer returned (FR-9). */
+    @Query(value = """
+        SELECT date_trunc('week', resolved_at AT TIME ZONE 'UTC') AS "weekStart",
+               COUNT(*) AS "total"
+        FROM retention_flags
+        WHERE business_id = :businessId
+          AND resolved_at IS NOT NULL
+          AND resolved_at >= :from
+        GROUP BY 1
+        """, nativeQuery = true)
+    List<WeeklyCount> countCustomersRecoveredByWeek(@Param("businessId") UUID businessId,
+                                                    @Param("from") Instant from);
 }

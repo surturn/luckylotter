@@ -14,6 +14,12 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByBusinessIdAndExternalRef(UUID businessId, String externalRef);
 
+    /** Customers with enough history to have a cadence — the flaggable population (FR-2). */
+    long countByBusinessIdAndTransactionCountGreaterThanEqual(UUID businessId, int minTransactions);
+
+    /** Seen, but still below {@code MIN_TRANSACTIONS}: no rhythm yet, so never flagged (FR-2). */
+    long countByBusinessIdAndTransactionCountLessThan(UUID businessId, int minTransactions);
+
     /**
      * At-risk candidates for one business (FR-3). Returns only customers with an
      * established cadence and no open flag; the per-customer threshold
