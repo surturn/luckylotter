@@ -8,6 +8,8 @@ import {
   FlagStatus,
   FlagSummary,
   FlagVisits,
+  ImportPreview,
+  ImportResult,
   OverviewStats,
   PageResponse,
   ScanSummary,
@@ -36,6 +38,35 @@ export class ApiService {
 
   getFlag(id: string): Observable<FlagDetail> {
     return this.http.get<FlagDetail>(`/v1/flags/${id}`);
+  }
+
+  /**
+   * Reads a CSV's columns and first rows so the admin can map them. Imports
+   * nothing.
+   */
+  previewImport(file: File): Observable<ImportPreview> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<ImportPreview>('/v1/transactions/import/preview', form);
+  }
+
+  /**
+   * Bulk import of a POS export (FR-1), using the confirmed column mapping.
+   *
+   * No Content-Type is set deliberately: the browser must add the multipart
+   * boundary itself, and setting the header by hand omits it.
+   */
+  importTransactions(file: File, mapping: Record<string, string>): Observable<ImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    Object.entries(mapping).forEach(([field, column]) => {
+      // An unmapped optional field is omitted rather than sent empty, so the
+      // server sees "not present" instead of "mapped to a column named ''".
+      if (column) {
+        form.append(field, column);
+      }
+    });
+    return this.http.post<ImportResult>('/v1/transactions/import', form);
   }
 
   /** One flagged customer's recent visits (FR-7). */

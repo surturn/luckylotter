@@ -35,6 +35,8 @@ public record FlagDetailResponse(
     DealType dealType,
     BigDecimal dealValue,
     OfferStatus offerStatus,
+    /** The code the customer quotes to claim the offer; null for pre-V2 offers. */
+    String redemptionCode,
     OfferFailureCode offerFailureCode,
     Instant offerSentAt
 ) {

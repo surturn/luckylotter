@@ -29,6 +29,7 @@ public record FlagSummaryResponse(
     DealType dealType,
     BigDecimal dealValue,
     OfferStatus offerStatus,
+    String redemptionCode,
     Instant offerSentAt
 ) {
 }

@@ -162,6 +162,7 @@ public class FlagQueryService {
                 offer == null ? null : offer.getDealType(),
                 offer == null ? null : offer.getDealValue(),
                 offer == null ? null : offer.getStatus(),
+                offer == null ? null : offer.getRedemptionCode(),
                 offer == null ? null : offer.getSentAt());
     }
 
@@ -186,6 +187,7 @@ public class FlagQueryService {
                 offer == null ? null : offer.getDealType(),
                 offer == null ? null : offer.getDealValue(),
                 offer == null ? null : offer.getStatus(),
+                offer == null ? null : offer.getRedemptionCode(),
                 offer == null ? null : offer.getFailureCode(),
                 offer == null ? null : offer.getSentAt());
     }

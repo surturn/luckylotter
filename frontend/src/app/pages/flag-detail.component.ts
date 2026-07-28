@@ -79,6 +79,10 @@ import { StatusPillComponent } from '../shared/status-pill.component';
               <dd>{{ dealLabel(detail) }}</dd>
               <dt>Status</dt>
               <dd><app-status-pill [status]="detail.offerStatus" /></dd>
+              @if (detail.redemptionCode) {
+                <dt>Code</dt>
+                <dd><span class="code">{{ detail.redemptionCode }}</span></dd>
+              }
               <dt>Sent</dt>
               <dd class="mono">{{ detail.offerSentAt ? (detail.offerSentAt | date: 'd MMM yyyy, HH:mm') : '—' }}</dd>
               @if (detail.offerFailureCode) {
@@ -147,6 +151,17 @@ import { StatusPillComponent } from '../shared/status-pill.component';
     }
     dt { color: var(--text-muted); font-size: var(--text-sm); }
     dd { margin: 0; text-align: right; }
+    /* The code is what the customer reads out at the counter, so it gets the
+       data face and enough tracking to be transcribed without errors. */
+    .code {
+      font-family: var(--font-data);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      background: var(--primary-50);
+      color: var(--primary-700);
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+    }
   `],
 })
 export class FlagDetailComponent {

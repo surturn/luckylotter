@@ -53,6 +53,8 @@ export interface FlagSummary {
   dealType: DealType | null;
   dealValue: number | null;
   offerStatus: OfferStatus | null;
+  /** Code the customer quotes to claim the offer; null for offers issued before codes existed. */
+  redemptionCode: string | null;
   offerSentAt: string | null;
 }
 
@@ -74,6 +76,7 @@ export interface FlagDetail {
   dealType: DealType | null;
   dealValue: number | null;
   offerStatus: OfferStatus | null;
+  redemptionCode: string | null;
   offerFailureCode: string | null;
   offerSentAt: string | null;
 }
@@ -133,4 +136,30 @@ export interface ScanSummary {
   flagged: number;
   skipped: number;
   errored: number;
+}
+
+/**
+ * A CSV's shape before anything is imported. `suggested` maps our field names
+ * to the caller's column names — a starting point for the mapping form, never
+ * applied without confirmation.
+ */
+export interface ImportPreview {
+  columns: string[];
+  sampleRows: string[][];
+  suggested: Record<string, string>;
+}
+
+export interface ImportRowError {
+  /** 1-based line in the uploaded file, so it can be found in a spreadsheet. */
+  line: number;
+  message: string;
+}
+
+/** Duplicates are replays, not failures — they are reported separately (NFR-3). */
+export interface ImportResult {
+  totalRows: number;
+  imported: number;
+  duplicates: number;
+  failed: number;
+  errors: ImportRowError[];
 }
