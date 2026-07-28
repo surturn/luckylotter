@@ -16,6 +16,20 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          # Mailpit needs neither; a real provider sets both via env.
+          auth: ${MAIL_AUTH:false}
+          starttls:
+            enable: ${MAIL_STARTTLS:false}
+          # Never let a hung SMTP server stall the dispatch loop.
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 server:
   port: ${SERVER_PORT:8080}
@@ -42,6 +56,12 @@ lucklotter:
   retention:
     # Daily cadence-break scan (FR-3). Default 02:00 server time.
     scan-cron: ${RETENTION_SCAN_CRON:0 0 2 * * *}
+  notifications:
+    email:
+      # When false the logging stub handles delivery, so the app runs with no
+      # mail server at all (§6, §12).
+      enabled: ${EMAIL_ENABLED:false}
+      from: ${EMAIL_FROM:offers@lucklotter.test}
   seed:
     # Demo data (§13). Off by default: it must never run against pilot data,
     # and it is a no-op anyway once a business exists.

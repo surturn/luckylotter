@@ -16,12 +16,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # Catches every outbound offer email and shows it in a browser inbox.
+  # Real SMTP, real templates, real failure handling — but nothing can escape
+  # to an actual person, which is what makes it safe to point at seeded
+  # customers. Swapping to a live provider is env vars only.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: lucklotter-mailpit
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "8025:8025"   # inbox UI
+      - "1025:1025"   # SMTP
+
   backend:
     build: ./backend
     container_name: lucklotter-backend
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       DB_URL: jdbc:postgresql://db:5432/lucklotter
       DB_USER: ${POSTGRES_USER:-lucklotter}
@@ -30,6 +47,10 @@ services:
       # fail to start rather than boot with a secret that is public in git
       # (NFR-6). Copy .env.example to .env for local runs.
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set — see .env.example}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
+      EMAIL_FROM: ${EMAIL_FROM:-offers@lucklotter.test}
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
       SEED_ENABLED: ${SEED_ENABLED:-false}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@lucklotter.test}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-demo-password-123}

@@ -65,6 +65,17 @@ public class Offer {
     @Column(name = "failure_code", length = 40)
     private OfferFailureCode failureCode;
 
+    /**
+     * The code the customer quotes to claim this offer.
+     *
+     * <p>Generated when the offer is created and unique within the business.
+     * Phase 1 issues and displays it; nothing records redemption yet, so a code
+     * is a reference the business honours manually rather than a token the
+     * system can retire.
+     */
+    @Column(name = "redemption_code", length = 16)
+    private String redemptionCode;
+
     @Column(name = "sent_at")
     private Instant sentAt;
 

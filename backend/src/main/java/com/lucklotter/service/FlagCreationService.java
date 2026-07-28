@@ -38,15 +38,18 @@ public class FlagCreationService {
     private final CustomerRepository customers;
     private final RetentionFlagRepository flags;
     private final OfferRepository offers;
+    private final RedemptionCodeGenerator redemptionCodes;
 
     public FlagCreationService(BusinessRepository businesses,
                                CustomerRepository customers,
                                RetentionFlagRepository flags,
-                               OfferRepository offers) {
+                               OfferRepository offers,
+                               RedemptionCodeGenerator redemptionCodes) {
         this.businesses = businesses;
         this.customers = customers;
         this.flags = flags;
         this.offers = offers;
+        this.redemptionCodes = redemptionCodes;
     }
 
     /**
@@ -87,6 +90,7 @@ public class FlagCreationService {
         // what was already offered (FR-4).
         offer.setDealType(business.getDefaultDealType());
         offer.setDealValue(business.getDefaultDealValue());
+        offer.setRedemptionCode(redemptionCodes.generate());
         if (!customer.isContactable()) {
             // Still generated and still visible — just never sendable (FR-5).
             offer.markNoContact();

@@ -2,10 +2,17 @@ package com.lucklotter.config;
 
 import com.lucklotter.domain.AdminUser;
 import com.lucklotter.domain.Business;
+import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.DealType;
+import com.lucklotter.domain.Offer;
+import com.lucklotter.domain.RetentionFlag;
 import com.lucklotter.repo.AdminUserRepository;
 import com.lucklotter.repo.BusinessRepository;
+import com.lucklotter.repo.CustomerRepository;
+import com.lucklotter.repo.OfferRepository;
+import com.lucklotter.repo.RetentionFlagRepository;
 import com.lucklotter.service.IngestionService;
+import com.lucklotter.service.RedemptionCodeGenerator;
 import com.lucklotter.web.dto.TransactionIngestRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +25,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 /**
  * Seeds a demo business, an admin login, and a transaction history that
@@ -29,6 +37,18 @@ import java.time.temporal.ChronoUnit;
  * <p>Transactions go in through {@link IngestionService} rather than straight
  * SQL, so the seeded cadence is computed by the same code the API uses — demo
  * data can't drift from production behaviour.
+ *
+ * <h2>On the backdated history</h2>
+ *
+ * Part two writes flags and offers with timestamps spread over the previous
+ * eight weeks. That is legitimate precisely because every customer here is
+ * invented: the whole dataset is a fixture, so a fixture flag is no more a
+ * fabrication than a fixture transaction. What would <em>not</em> be
+ * legitimate is backdating a flag for a real customer, or drawing a chart from
+ * numbers the system never recorded.
+ *
+ * <p>Without it the overview shows one bar and a recovery rate off six flags,
+ * which says nothing about whether the mechanism works over time.
  */
 @Component
 @ConditionalOnProperty(name = "lucklotter.seed.enabled", havingValue = "true")
@@ -38,27 +58,39 @@ public class DemoDataSeeder implements CommandLineRunner {
 
     private final BusinessRepository businesses;
     private final AdminUserRepository adminUsers;
+    private final CustomerRepository customers;
+    private final RetentionFlagRepository flags;
+    private final OfferRepository offers;
     private final IngestionService ingestion;
+    private final RedemptionCodeGenerator redemptionCodes;
     private final PasswordEncoder passwordEncoder;
     private final String adminEmail;
     private final String adminPassword;
 
     public DemoDataSeeder(BusinessRepository businesses,
                           AdminUserRepository adminUsers,
+                          CustomerRepository customers,
+                          RetentionFlagRepository flags,
+                          OfferRepository offers,
                           IngestionService ingestion,
+                          RedemptionCodeGenerator redemptionCodes,
                           PasswordEncoder passwordEncoder,
                           @Value("${lucklotter.seed.admin-email}") String adminEmail,
                           @Value("${lucklotter.seed.admin-password}") String adminPassword) {
         this.businesses = businesses;
         this.adminUsers = adminUsers;
+        this.customers = customers;
+        this.flags = flags;
+        this.offers = offers;
         this.ingestion = ingestion;
+        this.redemptionCodes = redemptionCodes;
         this.passwordEncoder = passwordEncoder;
         this.adminEmail = adminEmail;
         this.adminPassword = adminPassword;
     }
 
     /**
-     * One seeded customer profile.
+     * A customer who is quiet right now and will flag on the next scan.
      *
      * @param visits      how many transactions to generate
      * @param cadenceDays the gap between them
@@ -66,6 +98,14 @@ public class DemoDataSeeder implements CommandLineRunner {
      */
     private record Profile(String ref, int visits, int cadenceDays, int quietDays,
                            String email, String phone) {
+    }
+
+    /**
+     * A customer who was flagged in the past. {@code recoveredAfterDays} of
+     * null means they never came back, so their flag is still open.
+     */
+    private record History(String ref, int cadenceDays, int flaggedWeeksAgo,
+                           Integer recoveredAfterDays, String email, String phone) {
     }
 
     /**
@@ -93,6 +133,25 @@ public class DemoDataSeeder implements CommandLineRunner {
         new Profile("POS-3002", 1, 0, 90, "irene@example.test", "+254700000022"),
     };
 
+    /** Eight weeks of prior activity, most of whom came back. */
+    private static final History[] HISTORY = {
+        new History("POS-4001", 7, 8, 6, "james@example.test", "+254700000101"),
+        new History("POS-4002", 6, 8, 9, "karen@example.test", null),
+        new History("POS-4003", 10, 7, 5, "lucy@example.test", "+254700000103"),
+        new History("POS-4004", 7, 7, null, "martin@example.test", null),
+        new History("POS-4005", 5, 6, 4, "nadia@example.test", "+254700000105"),
+        new History("POS-4006", 9, 6, 12, "oscar@example.test", null),
+        new History("POS-4007", 7, 5, 7, "paul@example.test", "+254700000107"),
+        new History("POS-4008", 12, 5, null, "quincy@example.test", null),
+        new History("POS-4009", 6, 4, 8, "rita@example.test", "+254700000109"),
+        new History("POS-4010", 8, 4, 6, "samuel@example.test", null),
+        new History("POS-4011", 7, 3, 5, "tanya@example.test", "+254700000111"),
+        new History("POS-4012", 11, 3, null, "umar@example.test", null),
+        new History("POS-4013", 6, 2, 9, "vera@example.test", "+254700000113"),
+        new History("POS-4014", 9, 2, 7, "wesley@example.test", null),
+        new History("POS-4015", 7, 1, 4, "xena@example.test", "+254700000115"),
+    };
+
     @Override
     public void run(String... args) {
         if (businesses.count() > 0) {
@@ -113,25 +172,102 @@ public class DemoDataSeeder implements CommandLineRunner {
         adminUsers.save(admin);
 
         Instant now = Instant.now();
-        int transactionCount = 0;
+        int transactionCount = seedCurrentCustomers(business, now);
+        transactionCount += seedHistory(business, now);
+
+        log.info("Seeded demo data: businessId={} customers={} transactions={} historicalFlags={} adminEmail={}",
+                business.getId(), PROFILES.length + HISTORY.length, transactionCount,
+                HISTORY.length, adminEmail);
+    }
+
+    /** Customers whose current state the next scan will act on. */
+    private int seedCurrentCustomers(Business business, Instant now) {
+        int count = 0;
         for (Profile profile : PROFILES) {
             for (int visit = 0; visit < profile.visits(); visit++) {
                 // Oldest first, ending `quietDays` ago.
                 int daysAgo = profile.quietDays()
                         + profile.cadenceDays() * (profile.visits() - 1 - visit);
-                ingestion.ingest(business.getId(), new TransactionIngestRequest(
-                        business.getId(),
-                        profile.ref(),
-                        "SEED-" + profile.ref() + "-" + visit,
-                        new BigDecimal("450.00"),
-                        now.minus(daysAgo, ChronoUnit.DAYS),
-                        profile.email(),
-                        profile.phone()));
-                transactionCount++;
+                ingest(business, profile.ref(), "SEED-" + profile.ref() + "-" + visit,
+                        now.minus(daysAgo, ChronoUnit.DAYS), profile.email(), profile.phone());
+                count++;
             }
         }
+        return count;
+    }
 
-        log.info("Seeded demo data: businessId={} customers={} transactions={} adminEmail={}",
-                business.getId(), PROFILES.length, transactionCount, adminEmail);
+    /**
+     * Customers flagged in previous weeks, most of whom returned.
+     *
+     * <p>Visits are ingested first so the flag is written against a customer
+     * who already has cadence — and so ingestion has no open flag to
+     * auto-resolve, leaving the historical {@code resolved_at} intact rather
+     * than stamping it with the current time.
+     */
+    private int seedHistory(Business business, Instant now) {
+        int count = 0;
+        for (History entry : HISTORY) {
+            Instant flaggedAt = now.minus(entry.flaggedWeeksAgo() * 7L, ChronoUnit.DAYS);
+            // Six visits on cadence, finishing just over threshold before the flag.
+            int visits = 6;
+            BigDecimal cadence = BigDecimal.valueOf(entry.cadenceDays());
+            Instant lastVisitBeforeFlag = flaggedAt.minus(
+                    (long) Math.ceil(entry.cadenceDays() * 1.5) + 1, ChronoUnit.DAYS);
+
+            for (int visit = visits - 1; visit >= 0; visit--) {
+                ingest(business, entry.ref(), "SEED-H-" + entry.ref() + "-" + visit,
+                        lastVisitBeforeFlag.minus(entry.cadenceDays() * (long) visit, ChronoUnit.DAYS),
+                        entry.email(), entry.phone());
+                count++;
+            }
+
+            if (entry.recoveredAfterDays() != null) {
+                // The return visit itself, before the flag exists.
+                ingest(business, entry.ref(), "SEED-H-" + entry.ref() + "-return",
+                        flaggedAt.plus(entry.recoveredAfterDays(), ChronoUnit.DAYS),
+                        entry.email(), entry.phone());
+                count++;
+            }
+
+            Customer customer = customers
+                    .findByBusinessIdAndExternalRef(business.getId(), entry.ref())
+                    .orElseThrow();
+            writeHistoricalFlag(business, customer, entry, flaggedAt, cadence);
+        }
+        return count;
+    }
+
+    private void writeHistoricalFlag(Business business, Customer customer, History entry,
+                                     Instant flaggedAt, BigDecimal cadence) {
+        RetentionFlag flag = new RetentionFlag();
+        flag.setBusiness(business);
+        flag.setCustomer(customer);
+        flag.setFlaggedAt(flaggedAt);
+        flag.setAvgIntervalDaysAtFlag(cadence);
+        flag.setThresholdDaysApplied(business.thresholdDaysFor(cadence));
+        if (entry.recoveredAfterDays() != null) {
+            flag.resolve(flaggedAt.plus(entry.recoveredAfterDays(), ChronoUnit.DAYS));
+        }
+        flags.save(flag);
+
+        Offer offer = new Offer();
+        offer.setBusiness(business);
+        offer.setFlag(flag);
+        offer.setDealType(business.getDefaultDealType());
+        offer.setDealValue(business.getDefaultDealValue());
+        offer.setRedemptionCode(redemptionCodes.generate());
+        offer.setCreatedAt(flaggedAt);
+        offer.setUpdatedAt(flaggedAt);
+        // Historical offers were delivered at the time; the dispatcher only
+        // picks up PENDING and FAILED, so these stay untouched by later runs.
+        offer.markSent(flaggedAt.plus(2, ChronoUnit.MINUTES));
+        offers.save(offer);
+    }
+
+    private void ingest(Business business, String customerRef, String externalTxnId,
+                        Instant occurredAt, String email, String phone) {
+        ingestion.ingest(business.getId(), new TransactionIngestRequest(
+                business.getId(), customerRef, externalTxnId,
+                new BigDecimal("450.00"), occurredAt, email, phone));
     }
 }
