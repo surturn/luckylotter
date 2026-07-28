@@ -25,6 +25,16 @@ docker compose up --build
 - Dashboard — <http://localhost:4200>
 - API — <http://localhost:8080> (nginx also proxies `/v1` from port 4200, so the
   browser only ever talks to one origin and the API needs no CORS config)
+- **Offer inbox** — <http://localhost:8025>
+
+Offer emails are really sent, over SMTP, to a Mailpit container. The template,
+the transport, the `PENDING → SENT / FAILED` transitions and the failure-code
+mapping are all exercised — but nothing can reach an actual person, which is
+what makes it safe to point at seeded customers. Switching to a live provider
+(Brevo, SES) is `MAIL_HOST` / `MAIL_PORT` / `MAIL_AUTH` and credentials.
+
+Set `EMAIL_ENABLED=false` to fall back to the logging stub and run with no mail
+server at all.
 
 ### Demo data
 
@@ -52,7 +62,15 @@ real data.
 4. **Trigger settings.** Sensitivity is presented as named choices with a worked
    example that updates live, because `1.5` means nothing to a café owner.
 5. **Run scan now**, twice. The second run flags nobody — one open flag per
-   customer is enforced by a partial unique index, so re-running is safe.
+   customer is enforced by a partial unique index, so re-running is safe. Open
+   <http://localhost:8025> to read the offers that just went out, each carrying
+   the redemption code shown on the flag detail page.
+6. **Import a POS export.** `docs/sample-pos-export.csv` is a 25-row file using
+   a different till vendor's column names — `Receipt No`, `Cust ID`, `Sale
+   Date`, `Total`. The importer detects all six and pre-fills the mapping form,
+   with a live sample value under each field so you can confirm rather than
+   trust it. Import it twice: the second run reports 25 duplicates and imports
+   nothing.
 6. **Ingest a transaction** for a flagged customer and their flag closes itself:
 
    ```bash
@@ -94,6 +112,10 @@ stays explainable after the business later retunes its sensitivity.
 |---|---|---|
 | POST | `/v1/auth/login` | Admin login, returns a JWT |
 | POST | `/v1/transactions` | Ingest a POS transaction (idempotent) |
+| POST | `/v1/transactions/import/preview` | Read a CSV's columns and sample rows |
+| POST | `/v1/transactions/import` | Import a CSV using a confirmed column mapping |
+| GET | `/v1/stats/overview` | Dashboard aggregates and the 8-week series |
+| GET | `/v1/flags/{id}/visits` | A flagged customer's recent visit timestamps |
 | GET/PUT | `/v1/businesses/me/config` | Trigger tuning and deal defaults |
 | GET | `/v1/flags` | Flagged customers, paginated, optional `status` |
 | GET | `/v1/flags/{id}` | Flag detail with its offer |

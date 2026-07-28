@@ -217,12 +217,13 @@ the Testcontainers/Docker-API notes now live there.
 
 - [x] **~~`SecurityConfig` ends in `anyRequest().permitAll()`~~** — closed 2026-07-28. Now `anyRequest().authenticated()` with the JWT filter in place and an explicit three-entry public list; verified by hand that an unauthenticated `/v1/flags` returns 401 (NFR-1)
 - [x] **~~`JWT_SECRET` dev literal~~** — closed 2026-07-28. `docker-compose.yml` now uses `${JWT_SECRET:?...}` with no fallback, so a deployment that forgot to set it fails to start rather than booting on a secret that is public in git. `.env.example` committed, `.env` gitignored (NFR-6)
-- [ ] **No-PII log audit** completed against real ingestion payloads, which are the first thing to actually carry emails and phone numbers (NFR-4)
+- [x] **No-PII log audit** — run 2026-07-29 against a full seed + scan + email dispatch + CSV import, i.e. logs produced while 161 payloads carrying emails and phone numbers passed through. `docker compose logs backend | grep -icE "@example\.test|\+2547"` returns **0**. Re-run this grep after adding any log statement that touches a customer (NFR-4)
+- [ ] Automate that audit as a test, so it fails a build rather than depending on someone remembering to grep (NFR-4)
 - [ ] **Service-layer test coverage.** Everything under M1–M3 was verified by hand against the running stack, not by tests — only the persistence mapping is covered. The individually-listed tests below are the gate; a pilot must not depend on manual verification holding
 
 ### Pilot tasks
 
-- [ ] CSV import path for a POS transaction export, reusing the ingestion service (FR-1, §12)
+- [x] CSV import path for a POS transaction export, reusing the ingestion service — plus an `/import/preview` step so the admin maps their own column names, since no two till vendors agree on them. `docs/sample-pos-export.csv` is a 25-row demo export (FR-1, §12)
 - [ ] Decide whether a **backdated** transaction should resolve an open flag. Today any newly ingested transaction resolves it (FR-9 as written), which is right for live POS traffic but wrong for a historical CSV backfill — importing old data would close flags the customer never actually answered. Blocks the CSV importer above (FR-9, FR-1)
 - [x] Seed script: sample business, admin user, and a realistic transaction history that produces flags on first job run (G4, §13)
 - [x] Manual-run trigger for the batch job (admin endpoint or CLI) so a demo doesn't wait for the daily schedule (support)
@@ -278,7 +279,7 @@ Carried from PRD §12 plus items surfaced while deriving tasks. None are blockin
 M0, but the starred ones block the tasks named.
 
 - **POS data source (§12)** — which pilot business's POS or export format? Blocks the CSV importer's column mapping in M4.
-- **Notification channel (§12)** — confirmed that Phase 1 ships the logging/email stub only? SMS (Africa's Talking) is treated here as post-pilot.
+
 - **Multi-tenancy (§12)** — schema is multi-tenant regardless; the open question is only whether concurrent multi-business pilots need testing in Phase 1.
 - **Deal value logic (§12)** — static default per business, or escalating by inactivity duration? Affects M2-2. Assumed static for now.
 - **Offer expiry** — the `offers` table has no expiry column and no FR covers offer/deal validity period. Intentional for Phase 1?
@@ -287,6 +288,16 @@ M0, but the starred ones block the tasks named.
 - **Multiplier legibility** — `sensitivity_multiplier = 1.5` is precise but not something a café owner will reason about. The config UI may need to present it as coarse choices ("sensitive / balanced / relaxed") mapping to multipliers underneath. Flagged as a UX task in the config section, not a blocker.
 
 ### Resolved (2026-07-28)
+
+- ~~Notification channel~~ → Phase 1 now **really sends email** over SMTP
+  (`EmailNotificationSender`, `@Primary`, behind `EMAIL_ENABLED`), caught by a
+  Mailpit container in Compose. The logging stub remains the default so a
+  deployment without mail configured still runs. SMS stays post-pilot; a
+  phone-only customer currently lands at `FAILED` with a retriable code rather
+  than a false `SENT`, so an SMS sender added later picks those offers up.
+- ~~Offer redemption codes~~ → issued per offer (V2 migration), unique per
+  business, shown in the email and on the flag detail. Redemption **tracking**
+  is Phase 2: nothing marks a code as used.
 
 - ~~Cadence minimum sample~~ → `MIN_TRANSACTIONS = 3`, fixed constant.
 - ~~Threshold semantics~~ → per-customer, multiplier × cadence, clamped. See Resolved PRD conflicts above.
