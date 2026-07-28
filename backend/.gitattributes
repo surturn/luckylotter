@@ -1,0 +1,4 @@
+# The Maven wrapper shell script must keep LF endings and stay executable,
+# or it breaks on Linux/macOS ("bad interpreter: no such file or directory").
+mvnw text eol=lf
+mvnw.cmd text eol=crlf
