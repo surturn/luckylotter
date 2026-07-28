@@ -1,21 +1,23 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { FlagStatus, FlagSummary, PageResponse } from '../core/api.models';
+import { FlagStatus, FlagSummary, FlagVisits, PageResponse } from '../core/api.models';
 import { StatusPillComponent } from '../shared/status-pill.component';
+import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
 
 /**
  * The flagged-customer list (FR-7, US-2).
  *
  * Each row carries the evidence behind its own trigger — the customer's usual
- * gap and the threshold it crossed — so the admin can judge whether the flag
- * was fair instead of taking it on trust.
+ * gap, the threshold it crossed, and the visit rhythm those numbers came from —
+ * so the admin can judge whether the flag was fair instead of taking it on
+ * trust.
  */
 @Component({
   selector: 'app-flags-list',
   standalone: true,
-  imports: [RouterLink, DatePipe, DecimalPipe, StatusPillComponent],
+  imports: [RouterLink, DatePipe, DecimalPipe, StatusPillComponent, VisitSparklineComponent],
   template: `
     <div class="head">
       <div>
@@ -59,22 +61,30 @@ import { StatusPillComponent } from '../shared/status-pill.component';
     }
 
     <div class="filters" role="group" aria-label="Filter by status">
-      @for (option of filters; track option.value) {
+      @for (option of filters; track option.label) {
         <button type="button"
                 [class]="status() === option.value ? 'btn-primary' : 'btn-secondary'"
                 [attr.aria-pressed]="status() === option.value"
                 (click)="setStatus(option.value)">
           {{ option.label }}
+          @if (countFor(option.value) !== null) {
+            <span class="count">{{ countFor(option.value) }}</span>
+          }
         </button>
       }
     </div>
 
     <div class="card">
       @if (loading()) {
-        <div style="padding:var(--space-4)">
+        <div class="loading">
           @for (row of [1,2,3,4,5]; track row) {
-            <div class="skeleton" style="margin:14px 0"></div>
+            <div class="skeleton"></div>
           }
+        </div>
+      } @else if (loadFailed()) {
+        <div class="state">
+          <p style="margin:0 0 var(--space-3)"><strong>Couldn't load flagged customers.</strong></p>
+          <button type="button" class="btn-secondary" (click)="load(0)">Try again</button>
         </div>
       } @else {
         @if (page(); as data) {
@@ -93,9 +103,10 @@ import { StatusPillComponent } from '../shared/status-pill.component';
               <thead>
                 <tr>
                   <th scope="col">Customer</th>
+                  <th scope="col">Visit rhythm</th>
                   <th scope="col">Last visit</th>
-                  <th scope="col">Usual gap</th>
-                  <th scope="col">Flagged after</th>
+                  <th scope="col" class="numeric">Usual gap</th>
+                  <th scope="col" class="numeric">Flagged after</th>
                   <th scope="col">Offer</th>
                   <th scope="col">Flag</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
@@ -105,9 +116,22 @@ import { StatusPillComponent } from '../shared/status-pill.component';
                 @for (flag of data.items; track flag.flagId) {
                   <tr>
                     <td class="mono">{{ flag.customerRef }}</td>
+                    <td class="rhythm">
+                      @if (visitsFor(flag.flagId); as history) {
+                        <app-visit-sparkline [visits]="history.visits" [flaggedAt]="history.flaggedAt" />
+                      } @else {
+                        <span class="skeleton rhythm-placeholder"></span>
+                      }
+                    </td>
                     <td class="mono">{{ flag.lastVisitAt ? (flag.lastVisitAt | date: 'd MMM yyyy') : '—' }}</td>
-                    <td class="mono">every {{ flag.avgIntervalDaysAtFlag | number: '1.0-1' }} days</td>
-                    <td class="mono">{{ flag.thresholdDaysApplied | number: '1.0-1' }} quiet days</td>
+                    <td class="mono numeric">every {{ flag.avgIntervalDaysAtFlag | number: '1.0-0' }} days</td>
+                    <!-- Rounded so the column scans; the exact value stays in
+                         the tooltip, since it is what the threshold actually
+                         was. -->
+                    <td class="mono numeric"
+                        [title]="(flag.thresholdDaysApplied | number: '1.1-1') + ' quiet days'">
+                      {{ flag.thresholdDaysApplied | number: '1.0-0' }} quiet days
+                    </td>
                     <td><app-status-pill [status]="flag.offerStatus" /></td>
                     <td><app-status-pill [status]="flag.status" /></td>
                     <td><a [routerLink]="['/flags', flag.flagId]">View</a></td>
@@ -141,7 +165,25 @@ import { StatusPillComponent } from '../shared/status-pill.component';
       margin-bottom: var(--space-4);
     }
     .filters { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); flex-wrap: wrap; }
-    .filters button { min-height: 36px; padding: 6px 14px; font-size: var(--text-sm); }
+    .filters button { min-height: 36px; padding: 0 var(--space-3); font-size: var(--text-sm); }
+    .count {
+      font-family: var(--font-data);
+      font-variant-numeric: tabular-nums;
+      font-size: var(--text-xs);
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      background: rgba(15, 23, 42, 0.08);
+    }
+    .btn-primary .count { background: rgba(255, 255, 255, 0.22); }
+    /* Sticky header: scrolling a long list shouldn't cost you the column
+       names. Needs its own background, or rows show through it. */
+    .table-scroll { max-height: 65vh; overflow: auto; }
+    thead th { position: sticky; top: 0; z-index: 1; }
+    tbody tr:nth-child(even) { background: var(--neutral-50); }
+    tbody tr:hover { background: var(--primary-50); }
+    .rhythm { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+    .rhythm-placeholder { display: inline-block; width: 132px; height: 10px; }
+    .loading { padding: var(--space-4); display: grid; gap: var(--space-5); }
     .pager {
       display: flex;
       align-items: center;
@@ -164,17 +206,46 @@ export class FlagsListComponent {
   readonly page = signal<PageResponse<FlagSummary> | null>(null);
   readonly status = signal<FlagStatus | null>(null);
   readonly loading = signal(true);
+  readonly loadFailed = signal(false);
   readonly scanning = signal(false);
   readonly error = signal<string | null>(null);
   readonly banner = signal<string | null>(null);
   readonly uncontactable = signal(0);
   readonly contactWarningHidden = signal(false);
 
+  /** Visit history per flag, fetched a page at a time. */
+  private readonly visits = signal<Map<string, { visits: string[]; flaggedAt: string }>>(new Map());
+
+  /**
+   * Tab counts come from the aggregates endpoint. Counting the loaded page
+   * would report "25" on every filter once there are more than 25 flags.
+   */
+  private readonly totals = signal<{ active: number; resolved: number } | null>(null);
+
   private readonly pageSize = 25;
+
+  private readonly counts = computed(() => {
+    const totals = this.totals();
+    return totals === null
+      ? null
+      : { all: totals.active + totals.resolved, ACTIVE: totals.active, RESOLVED: totals.resolved };
+  });
 
   constructor() {
     this.load(0);
-    this.loadStats();
+    this.loadTotals();
+  }
+
+  countFor(status: FlagStatus | null): number | null {
+    const counts = this.counts();
+    if (counts === null) {
+      return null;
+    }
+    return status === null ? counts.all : counts[status];
+  }
+
+  visitsFor(flagId: string): { visits: string[]; flaggedAt: string } | null {
+    return this.visits().get(flagId) ?? null;
   }
 
   setStatus(status: FlagStatus | null): void {
@@ -199,7 +270,7 @@ export class FlagsListComponent {
             : `Scan complete — ${summary.flagged} newly flagged, ${summary.skipped} still within their usual gap.`
         );
         this.load(0);
-        this.loadStats();
+        this.loadTotals();
       },
       error: () => {
         this.scanning.set(false);
@@ -208,25 +279,51 @@ export class FlagsListComponent {
     });
   }
 
-  private load(page: number): void {
+  load(page: number): void {
     this.loading.set(true);
+    this.loadFailed.set(false);
     this.api.listFlags(page, this.pageSize, this.status()).subscribe({
       next: (data) => {
         this.page.set(data);
         this.loading.set(false);
+        this.loadVisits(data.items.map((flag) => flag.flagId));
       },
       error: () => {
         this.loading.set(false);
-        this.error.set('Could not load flagged customers. Refresh to try again.');
+        this.loadFailed.set(true);
       },
     });
   }
 
-  private loadStats(): void {
-    this.api.getStats().subscribe({
-      next: (stats) => this.uncontactable.set(stats.uncontactableOffers),
-      // A missing counter is not worth an error banner over the main table.
-      error: () => this.uncontactable.set(0),
+  /** One request for the whole page, not one per row. */
+  private loadVisits(flagIds: string[]): void {
+    if (flagIds.length === 0) {
+      return;
+    }
+    this.api.getFlagVisitsBatch(flagIds).subscribe({
+      next: (histories) => {
+        const next = new Map(this.visits());
+        histories.forEach((history: FlagVisits) =>
+          next.set(history.flagId, {
+            visits: history.visits.map((visit) => visit.occurredAt),
+            flaggedAt: history.flaggedAt,
+          })
+        );
+        this.visits.set(next);
+      },
+      // The rhythm column is supporting evidence. Losing it shouldn't put an
+      // error banner over a table that loaded perfectly well.
+      error: () => undefined,
+    });
+  }
+
+  private loadTotals(): void {
+    this.api.getOverview().subscribe({
+      next: (stats) => {
+        this.totals.set({ active: stats.activeFlags, resolved: stats.resolvedFlags });
+        this.uncontactable.set(stats.offersNoContact);
+      },
+      error: () => this.totals.set(null),
     });
   }
 }

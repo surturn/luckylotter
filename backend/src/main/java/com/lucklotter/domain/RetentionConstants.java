@@ -11,6 +11,13 @@ public final class RetentionConstants {
      */
     public static final int MIN_TRANSACTIONS = 3;
 
+    /**
+     * How many recent visits the rhythm chart shows (FR-7). Enough to make a
+     * regular cadence and the break in it obvious, without turning a table row
+     * into a dense plot.
+     */
+    public static final int VISIT_HISTORY_LIMIT = 12;
+
     private RetentionConstants() {
     }
 }

@@ -116,6 +116,17 @@ export interface OverviewStats {
   weeklySeries: WeeklyPoint[];
 }
 
+export interface VisitPoint {
+  occurredAt: string;
+}
+
+/** Real transaction timestamps — never interpolated from an average. */
+export interface FlagVisits {
+  flagId: string;
+  flaggedAt: string;
+  visits: VisitPoint[];
+}
+
 export interface ScanSummary {
   businessId: string;
   scanned: number;

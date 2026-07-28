@@ -4,11 +4,16 @@ import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferStatus;
+import com.lucklotter.domain.RetentionConstants;
 import com.lucklotter.domain.RetentionFlag;
 import com.lucklotter.repo.OfferRepository;
+import com.lucklotter.repo.PosTransactionRepository;
+import com.lucklotter.repo.PosTransactionRepository.CustomerVisit;
 import com.lucklotter.repo.RetentionFlagRepository;
 import com.lucklotter.web.dto.FlagDetailResponse;
 import com.lucklotter.web.dto.FlagSummaryResponse;
+import com.lucklotter.web.dto.FlagVisitsResponse;
+import com.lucklotter.web.dto.FlagVisitsResponse.VisitPoint;
 import com.lucklotter.web.dto.PageResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -16,7 +21,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Read side of the admin dashboard (FR-7).
@@ -31,10 +41,14 @@ public class FlagQueryService {
 
     private final RetentionFlagRepository flags;
     private final OfferRepository offers;
+    private final PosTransactionRepository transactions;
 
-    public FlagQueryService(RetentionFlagRepository flags, OfferRepository offers) {
+    public FlagQueryService(RetentionFlagRepository flags,
+                            OfferRepository offers,
+                            PosTransactionRepository transactions) {
         this.flags = flags;
         this.offers = offers;
+        this.transactions = transactions;
     }
 
     @Transactional(readOnly = true)
@@ -53,6 +67,73 @@ public class FlagQueryService {
         RetentionFlag flag = flags.findByIdAndBusinessId(flagId, businessId)
                 .orElseThrow(() -> new NotFoundException("Flag not found"));
         return toDetail(flag);
+    }
+
+    /**
+     * One flagged customer's recent visits, for the rhythm chart (FR-7).
+     *
+     * <p>Scoped through the flag, so a caller can only read visit history for a
+     * flag their own business owns (NFR-1).
+     */
+    @Transactional(readOnly = true)
+    public FlagVisitsResponse visits(UUID flagId, UUID businessId) {
+        RetentionFlag flag = flags.findByIdAndBusinessId(flagId, businessId)
+                .orElseThrow(() -> new NotFoundException("Flag not found"));
+        return new FlagVisitsResponse(
+                flag.getId(),
+                flag.getFlaggedAt(),
+                trimmedVisits(transactions.findVisitsForCustomers(List.of(flag.getCustomer().getId()))
+                        .stream()
+                        .map(CustomerVisit::getOccurredAt)
+                        .toList()));
+    }
+
+    /**
+     * Visit history for a page of flags in one round trip (FR-7, NFR-5).
+     *
+     * <p>The alternative — the table calling the single-flag endpoint per row —
+     * is an N+1 over HTTP, which is the same mistake the fetch-joined dashboard
+     * query exists to avoid, just moved up a layer.
+     */
+    @Transactional(readOnly = true)
+    public List<FlagVisitsResponse> visitsForFlags(Collection<UUID> flagIds, UUID businessId) {
+        if (flagIds.isEmpty()) {
+            return List.of();
+        }
+        List<RetentionFlag> owned = flags.findAllById(flagIds).stream()
+                // Filtering here, not in the query, keeps the tenant check in
+                // one obvious place; unowned IDs simply vanish from the result.
+                .filter(flag -> flag.getBusiness().getId().equals(businessId))
+                .toList();
+        if (owned.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, List<Instant>> byCustomer = transactions
+                .findVisitsForCustomers(owned.stream().map(f -> f.getCustomer().getId()).toList())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        CustomerVisit::getCustomerId,
+                        Collectors.mapping(CustomerVisit::getOccurredAt, Collectors.toList())));
+
+        return owned.stream()
+                .map(flag -> new FlagVisitsResponse(
+                        flag.getId(),
+                        flag.getFlaggedAt(),
+                        trimmedVisits(byCustomer.getOrDefault(flag.getCustomer().getId(), List.of()))))
+                .toList();
+    }
+
+    /**
+     * Newest {@link RetentionConstants#VISIT_HISTORY_LIMIT} visits, returned
+     * oldest first — the order a chart draws them in.
+     */
+    private static List<VisitPoint> trimmedVisits(List<Instant> newestFirst) {
+        return newestFirst.stream()
+                .limit(RetentionConstants.VISIT_HISTORY_LIMIT)
+                .sorted()
+                .map(VisitPoint::new)
+                .toList();
     }
 
     /**

@@ -5,6 +5,7 @@ import com.lucklotter.security.AdminPrincipal;
 import com.lucklotter.service.FlagQueryService;
 import com.lucklotter.web.dto.FlagDetailResponse;
 import com.lucklotter.web.dto.FlagSummaryResponse;
+import com.lucklotter.web.dto.FlagVisitsResponse;
 import com.lucklotter.web.dto.PageResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,9 +56,30 @@ public class FlagController {
         return Map.of("uncontactableOffers", flagQueryService.countUncontactable(admin.businessId()));
     }
 
+    /**
+     * Visit history for a page of flags, in one request.
+     *
+     * <p>Declared before {@code /{id}} for readability only — the literal
+     * segment wins over the variable regardless of order. IDs the caller
+     * doesn't own are dropped rather than rejected, so one stale ID in a page
+     * doesn't fail the whole request (NFR-1).
+     */
+    @GetMapping("/visits")
+    public List<FlagVisitsResponse> visitsForFlags(@AuthenticationPrincipal AdminPrincipal admin,
+                                                   @RequestParam List<UUID> ids) {
+        return flagQueryService.visitsForFlags(ids, admin.businessId());
+    }
+
     @GetMapping("/{id}")
     public FlagDetailResponse detail(@AuthenticationPrincipal AdminPrincipal admin,
                                      @PathVariable UUID id) {
         return flagQueryService.detail(id, admin.businessId());
+    }
+
+    /** One flagged customer's recent visits, for the detail chart (FR-7). */
+    @GetMapping("/{id}/visits")
+    public FlagVisitsResponse visits(@AuthenticationPrincipal AdminPrincipal admin,
+                                     @PathVariable UUID id) {
+        return flagQueryService.visits(id, admin.businessId());
     }
 }

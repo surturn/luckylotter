@@ -7,6 +7,7 @@ import {
   FlagDetail,
   FlagStatus,
   FlagSummary,
+  FlagVisits,
   OverviewStats,
   PageResponse,
   ScanSummary,
@@ -35,6 +36,21 @@ export class ApiService {
 
   getFlag(id: string): Observable<FlagDetail> {
     return this.http.get<FlagDetail>(`/v1/flags/${id}`);
+  }
+
+  /** One flagged customer's recent visits (FR-7). */
+  getFlagVisits(id: string): Observable<FlagVisits> {
+    return this.http.get<FlagVisits>(`/v1/flags/${id}/visits`);
+  }
+
+  /**
+   * Visit history for a whole page of flags in one request — calling the
+   * single-flag endpoint per row would be an N+1 over HTTP.
+   */
+  getFlagVisitsBatch(ids: string[]): Observable<FlagVisits[]> {
+    return this.http.get<FlagVisits[]>('/v1/flags/visits', {
+      params: new HttpParams().set('ids', ids.join(',')),
+    });
   }
 
   /** Every counter behind the overview screen, aggregated server-side (FR-7). */
