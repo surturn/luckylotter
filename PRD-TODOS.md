@@ -60,6 +60,41 @@ the Testcontainers/Docker-API notes now live there.
 
 ---
 
+## ▶ NEXT UP ON RESUME — UI pass, sections 4–6
+
+Sections 1–3 of the UI redesign are done and committed (design system, overview
+screen + aggregates endpoint, visit-rhythm sparkline + table). **Sections 4, 5
+and 6 are the top of the queue when work resumes**, in that order.
+
+Two constraints apply to all three, from the original brief:
+
+1. **Do not change user-facing copy.** The plain-English explanations — "judged
+   against their own rhythm…", the worked sensitivity example, the no-contact
+   banner — are deliberate and stay exactly as written.
+2. **Presentation only.** No changes to existing API contracts, DTOs or backend
+   behaviour. *Additive* read-only endpoints are in scope where the UI genuinely
+   needs data that isn't exposed — that is how `/v1/stats/overview` and
+   `/v1/flags/{id}/visits` came about — but never fake or client-derive the
+   data instead. See the resolved note under §12 of the PRD.
+
+### Section 4 — Flag detail, built out as a real page
+- [ ] Full visit timeline: the sparkline at detail size, not the inline table version. Data is already there via `GET /v1/flags/{id}/visits` (support)
+- [ ] Present `threshold_days_applied` + `avg_interval_days_at_flag` as "why this customer was flagged" in plain language (FR-7, §11)
+- [ ] The offer generated, its delivery status, and `failure_code` when present (FR-5, FR-7)
+- Already in place, don't redo: the explain banner, the redemption code, and the `NO_CONTACT` blocking callout.
+
+### Section 5 — Trigger settings
+- [ ] Success **toast** on save — currently an inline success banner, which works but isn't what the brief asked for (US-1, US-3)
+- Already in place, don't redo: restyled to the design system, the worked example updates live as sensitivity/clamps change, and the cross-field rule (never-flag-before ≤ always-flag-by) validates inline and blocks submit.
+
+### Section 6 — App shell
+- [ ] A real logo mark instead of the gradient square (support)
+- [ ] Decide sidebar vs. refined top nav; verify responsive down to tablet (support)
+- [ ] Treat the business name as an explicit tenant-context indicator rather than a subtitle (support)
+- Already in place, don't redo: active-route indication carried by weight + tint, not colour alone.
+
+---
+
 ## M0 — Scaffold & foundation
 
 ### M0-0: Reset the scaffold to the revised Phase 1 scope — ✅ done
