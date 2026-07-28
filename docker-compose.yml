@@ -3,9 +3,9 @@ services:
     image: postgres:16
     container_name: lucklotter-db
     environment:
-      POSTGRES_DB: lucklotter
-      POSTGRES_USER: lucklotter
-      POSTGRES_PASSWORD: lucklotter
+      POSTGRES_DB: ${POSTGRES_DB:-lucklotter}
+      POSTGRES_USER: ${POSTGRES_USER:-lucklotter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lucklotter}
     ports:
       - "5432:5432"
     volumes:
@@ -24,11 +24,27 @@ services:
         condition: service_healthy
     environment:
       DB_URL: jdbc:postgresql://db:5432/lucklotter
-      DB_USER: lucklotter
-      DB_PASSWORD: lucklotter
-      JWT_SECRET: dev-only-insecure-secret-change-me-0123456789abcdef
+      DB_USER: ${POSTGRES_USER:-lucklotter}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-lucklotter}
+      # No fallback, deliberately: a deployment that forgot to set this must
+      # fail to start rather than boot with a secret that is public in git
+      # (NFR-6). Copy .env.example to .env for local runs.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set — see .env.example}
+      SEED_ENABLED: ${SEED_ENABLED:-false}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@lucklotter.test}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-demo-password-123}
     ports:
       - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    container_name: lucklotter-frontend
+    depends_on:
+      - backend
+    # nginx proxies /v1 to the backend, so the browser only ever talks to this
+    # origin — no CORS configuration anywhere, and the API needs no public port.
+    ports:
+      - "4200:80"
 
 volumes:
   lucklotter_pgdata:

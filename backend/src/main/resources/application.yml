@@ -20,6 +20,11 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 
+logging:
+  pattern:
+    # Correlation ID per request, run ID per scheduled scan (NFR-4).
+    level: "%5p [correlationId=%X{correlationId:-none} runId=%X{runId:-none}]"
+
 management:
   endpoints:
     web:
@@ -37,3 +42,9 @@ lucklotter:
   retention:
     # Daily cadence-break scan (FR-3). Default 02:00 server time.
     scan-cron: ${RETENTION_SCAN_CRON:0 0 2 * * *}
+  seed:
+    # Demo data (§13). Off by default: it must never run against pilot data,
+    # and it is a no-op anyway once a business exists.
+    enabled: ${SEED_ENABLED:false}
+    admin-email: ${SEED_ADMIN_EMAIL:admin@lucklotter.test}
+    admin-password: ${SEED_ADMIN_PASSWORD:demo-password-123}

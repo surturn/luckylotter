@@ -23,7 +23,7 @@ Traditional loyalty programs are redemption-passive: a business has no signal th
 
 - Games, streaks, challenges, or surprise-reveal mechanics — **Phase 2**.
 - Native mobile app for business admins — web dashboard only.
-- Direct, certified integrations with specific POS vendors — Phase 1 ingests data via a generic webhook/CSV import (see §10, Open Questions).
+- Direct, certified integrations with specific POS vendors — Phase 1 ingests data via a generic webhook/CSV import (see §12, Open Questions).
 - Multi-language / localization beyond English.
 - Payment processing of any kind (deals are discount codes, not transactions).
 - Customer-facing self-serve app — customers only ever receive an outbound message (SMS/email), they don't log into anything in Phase 1.
@@ -31,7 +31,7 @@ Traditional loyalty programs are redemption-passive: a business has no signal th
 ## 5. User Personas & Stories
 
 **Business Admin** (franchise/branch manager or owner)
-- As a business admin, I want to set how many days of inactivity count as "at risk" for my business, so the trigger matches how often my customers actually visit.
+- As a business admin, I want to tune how sensitive the "at risk" trigger is for my business, so it matches how often my customers actually visit — without me having to guess a single day count that fits a daily regular and a monthly one equally badly.
 - As a business admin, I want to see a list of customers who've been flagged and what offer was sent to them, so I can track whether the system is working.
 - As a business admin, I want to configure the default deal type and value (e.g. 30% off), so offers match my margins.
 
@@ -69,12 +69,12 @@ Domain services never depend on `@RestController` classes. DTOs are explicit —
 
 | ID | Requirement |
 |---|---|
-| FR-1 | The system must accept POS transaction records via a REST ingestion endpoint (`POST /v1/transactions`), containing at minimum: business ID, customer identifier, transaction timestamp, amount. |
-| FR-2 | The system must compute each customer's average visit interval from their transaction history, updated as new transactions arrive. |
-| FR-3 | The system must run a scheduled job (default: daily) that flags any customer whose time-since-last-visit exceeds their configured threshold. |
-| FR-4 | The system must generate a personalized win-back offer (deal type + value, pulled from the business's configuration) for each newly flagged customer. |
-| FR-5 | The system must record every generated offer with its delivery status (`PENDING`, `SENT`, `FAILED`) — sending is delegated to a pluggable notification sender. |
-| FR-6 | A business admin must be able to log in and configure: inactivity threshold (days), default deal type, default deal value, per business. |
+| FR-1 | The system must accept POS transaction records via a REST ingestion endpoint (`POST /v1/transactions`), containing at minimum: business ID, customer identifier, transaction timestamp, amount — plus optional `contactEmail` / `contactPhone`, which fill in a customer's missing contact details on any later transaction. |
+| FR-2 | The system must compute each customer's average visit interval from their transaction history, updated as new transactions arrive. A cadence is only computed once the customer has at least `MIN_TRANSACTIONS = 3` transactions (a fixed system constant, not per-business config); below that the customer has no cadence and is not flaggable. |
+| FR-3 | The system must run a scheduled job (default: daily) that flags any customer whose time-since-last-visit exceeds **that customer's own** threshold, derived from their learned cadence: `days_since_last_visit > clamp(avg_interval_days × sensitivity_multiplier, min_threshold_days, max_threshold_days)`. There is no flat per-business inactivity threshold. |
+| FR-4 | The system must generate a personalized win-back offer (deal type + value, pulled from the business's configuration) for each newly flagged customer. Deal value is static per business in Phase 1 — it does not escalate with inactivity duration. |
+| FR-5 | The system must record every generated offer with its delivery status (`PENDING`, `SENT`, `FAILED`, `NO_CONTACT`) — sending is delegated to a pluggable notification sender. A customer with neither `contact_email` nor `contact_phone` still gets an offer generated and logged, marked `NO_CONTACT` (terminal, never retried) rather than left indefinitely `PENDING`, so the contactability gap is visible. |
+| FR-6 | A business admin must be able to log in and configure, per business: `sensitivity_multiplier` (default 1.5), `min_threshold_days` (default 3), `max_threshold_days` (default 60), default deal type, and default deal value. `MIN_TRANSACTIONS` is exposed read-only. The service layer enforces `min_threshold_days <= max_threshold_days`. |
 | FR-7 | A business admin must be able to view a list of flagged customers, their last visit date, and the offer sent to them. |
 | FR-8 | The system must not re-flag a customer who already has an active, unresolved flag/offer. |
 | FR-9 | A flag is auto-resolved (status → `RESOLVED`) the next time that customer's transaction is ingested. |
@@ -90,15 +90,34 @@ Domain services never depend on `@RestController` classes. DTOs are explicit —
 
 ## 9. Data Model (Postgres — Phase 1)
 
+Authoritative definition lives in `backend/src/main/resources/db/migration/V1__init.sql`;
+this is the summary view.
+
 ```
-businesses            (id, name, inactivity_threshold_days, default_deal_type, default_deal_value, created_at)
-admin_users            (id, business_id FK, email, password_hash, created_at)
-customers               (id, business_id FK, external_ref, first_seen_at, last_visit_at)
-transactions            (id, business_id FK, customer_id FK, external_txn_id UNIQUE, amount, occurred_at)
-retention_flags       (id, customer_id FK, status[ACTIVE|RESOLVED], flagged_at, resolved_at)
-offers                    (id, flag_id FK, deal_type, deal_value, status[PENDING|SENT|FAILED], sent_at)
+businesses       (id, name, sensitivity_multiplier, min_threshold_days, max_threshold_days,
+                  default_deal_type, default_deal_value, created_at, updated_at)
+admin_users      (id, business_id FK, email UNIQUE, password_hash, active, created_at, updated_at)
+customers        (id, business_id FK, external_ref, contact_email?, contact_phone?,
+                  transaction_count, avg_interval_days?, first_seen_at, last_visit_at?,
+                  created_at, updated_at)
+transactions     (id, business_id FK, customer_id FK, external_txn_id, amount, occurred_at, created_at)
+retention_flags  (id, business_id FK, customer_id FK, status[ACTIVE|RESOLVED],
+                  threshold_days_applied, avg_interval_days_at_flag, flagged_at, resolved_at?)
+offers           (id, business_id FK, flag_id FK UNIQUE, deal_type, deal_value,
+                  status[PENDING|SENT|FAILED|NO_CONTACT], failure_code?, sent_at?,
+                  created_at, updated_at)
 ```
-Partial unique constraint: `UNIQUE (customer_id) WHERE status = 'ACTIVE'` on `retention_flags`.
+`?` marks a nullable column.
+
+Constraints that carry design decisions rather than mere hygiene:
+
+- `UNIQUE (customer_id) WHERE status = 'ACTIVE'` on `retention_flags` — one open flag per customer, enforced in the DB, not in application code (FR-8, NFR-2).
+- `UNIQUE (business_id, external_txn_id)` on `transactions` — POS transaction IDs are only unique within their own POS, so they can collide across tenants; a bare `UNIQUE` would let one business's ingestion silently reject another's row (NFR-3).
+- `UNIQUE (business_id, external_ref)` on `customers` — same reasoning for POS customer refs.
+- `customers.avg_interval_days` is `NULL` until `transaction_count >= MIN_TRANSACTIONS`; a `NULL` cadence means "not flaggable" (FR-2).
+- `offers.failure_code` is a **bounded code set** (`CHECK` constraint + `OfferFailureCode` enum), never a provider error string. A freeform message is how a phone number ends up in a column that was never meant to carry PII — this extends NFR-4's no-PII rule from logs to stored columns. The provider's own message goes to the correlated log line only.
+- `retention_flags.threshold_days_applied` / `avg_interval_days_at_flag` snapshot the numbers that fired the flag, so it stays explainable after the business retunes its sensitivity (§11 precision audit).
+- `offers.deal_type` / `deal_value` are likewise snapshotted from business config at generation time, so retuning config doesn't rewrite offer history.
 
 ## 10. API Surface (Spring Boot, `/v1`)
 
@@ -107,7 +126,7 @@ Partial unique constraint: `UNIQUE (customer_id) WHERE status = 'ACTIVE'` on `re
 | POST | `/v1/auth/login` | Admin login, returns JWT |
 | POST | `/v1/transactions` | POS ingests a transaction (idempotent) |
 | GET | `/v1/businesses/me/config` | Get current business's deal config |
-| PUT | `/v1/businesses/me/config` | Update threshold / deal defaults |
+| PUT | `/v1/businesses/me/config` | Update sensitivity multiplier / clamps / deal defaults |
 | GET | `/v1/flags` | List flagged customers + offer status (paginated) |
 | GET | `/v1/flags/{id}` | Flag detail |
 
@@ -120,10 +139,21 @@ Partial unique constraint: `UNIQUE (customer_id) WHERE status = 'ACTIVE'` on `re
 
 ## 12. Open Questions / Risks
 
-- **POS data source:** real integration will vary per POS vendor. Phase 1 assumes a generic webhook/CSV import — needs confirmation of which pilot business's POS (or POS export format) will be used for the demo.
-- **Notification channel & cost:** SMS delivery (e.g. Africa's Talking) has a per-message cost — out of scope for a zero-budget build. Phase 1 should default to a logging/email stub and treat SMS as a pilot-stage upgrade once a business is paying.
-- **Multi-tenancy:** schema is designed multi-tenant (`business_id` on every table) even though Phase 1 likely pilots with a single business — confirm if concurrent multi-business pilots are needed for Phase 1 or can wait.
-- **Deal value logic:** Phase 1 uses a single static default deal per business. Confirm whether the deal value should vary by how long the customer has been inactive (e.g. escalating discount).
+### Still open
+
+- **POS data source:** real integration will vary per POS vendor. Phase 1 assumes a generic webhook/CSV import — needs confirmation of which pilot business's POS (or POS export format) will be used for the demo. Blocks the CSV importer's column mapping (M4).
+- **Multi-tenancy:** schema is multi-tenant (`business_id` on every table) regardless; the open question is only whether *concurrent* multi-business pilots need testing in Phase 1, or can wait.
+- **Offer expiry:** `offers` has no expiry column and no FR covers deal validity period. Intentional for Phase 1, or an omission?
+- **Cadence definition:** "average visit interval" is implemented as the mean gap across *all* visits. A customer whose rhythm changed (weekly for a year, then monthly for three months) has a misleading mean. A trailing window (say, the last 10 visits) would track better. Revisit if the §11 precision audit comes in under 90%.
+- **Multiplier legibility:** `sensitivity_multiplier = 1.5` is precise but not something a café owner will reason about. The config UI may need to present coarse choices ("sensitive / balanced / relaxed") mapping to multipliers underneath. UX task, not a blocker.
+
+### Resolved (2026-07-28)
+
+- ~~**Threshold semantics.**~~ Per-customer, not a flat per-business day count — see FR-3. `inactivity_threshold_days` is gone from the schema.
+- ~~**Cadence minimum sample.**~~ `MIN_TRANSACTIONS = 3`, a fixed constant rather than per-business config.
+- ~~**Customer contact details.**~~ Nullable `contact_email` / `contact_phone` on `customers`, optional on ingest, with a `NO_CONTACT` offer status making the gap visible — see FR-5.
+- ~~**Notification channel & cost.**~~ Phase 1 ships the logging stub only. SMS (e.g. Africa's Talking) has a per-message cost and is a post-pilot upgrade behind the same `NotificationSender` interface.
+- ~~**Deal value logic.**~~ Static default per business; no escalation by inactivity duration in Phase 1.
 
 ## 13. Timeline / Milestones (proposed)
 

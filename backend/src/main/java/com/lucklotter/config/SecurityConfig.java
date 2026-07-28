@@ -1,5 +1,7 @@
 package com.lucklotter.config;
 
+import com.lucklotter.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -7,15 +9,35 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Baseline security wiring. Stateless (JWT-bound, FR-4) — the JWT auth filter
- * and role-based authorization rules are added with the accounts/auth work.
- * For now the public health check and ping are open; everything else will be
- * locked down once authentication exists.
+ * Stateless, JWT-bound security (NFR-1).
+ *
+ * <p>Everything is authenticated except login and the health/ping probes. The
+ * default is deny: a new endpoint is protected unless it is deliberately added
+ * to the public list below.
+ *
+ * <p>Authentication only establishes <em>who</em> is calling. Tenant scoping —
+ * that a caller sees only their own business's data — is enforced separately in
+ * the service layer from {@link com.lucklotter.security.AdminPrincipal}, because
+ * a route pattern cannot express "this row belongs to you".
  */
 @Configuration
 public class SecurityConfig {
+
+    /** Reachable without a token. Keep this list short and deliberate. */
+    private static final String[] PUBLIC_PATHS = {
+            "/v1/auth/login",
+            "/actuator/health",
+            "/api/ping"
+    };
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -23,14 +45,18 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable()) // stateless API, no cookies/session
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health", "/api/ping").permitAll()
-                // TODO(NFR-1): every endpoint is PUBLIC until the JWT filter
-                // lands. Tracked as a hard gate in PRD-TODOS.md § "M4 — Pilot
-                // readiness / Hard gates" — this must be authenticated() before
-                // any pilot data exists. Do not remove this comment without
-                // closing that gate.
-                .anyRequest().permitAll()
-            );
+                .requestMatchers(PUBLIC_PATHS).permitAll()
+                .anyRequest().authenticated()
+            )
+            .exceptionHandling(ex -> ex
+                // Default would be a 403 with an HTML login redirect; an API
+                // client needs to tell "no token" from "wrong tenant".
+                .authenticationEntryPoint((request, response, authException) ->
+                        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Authentication required"))
+                .accessDeniedHandler((request, response, deniedException) ->
+                        response.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden"))
+            )
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

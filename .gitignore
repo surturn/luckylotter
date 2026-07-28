@@ -20,3 +20,6 @@ Thumbs.db
 .env
 *.local
 .claude
+# Playwright MCP artefacts
+.playwright-mcp/
+*.png
