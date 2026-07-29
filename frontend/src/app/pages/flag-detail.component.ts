@@ -2,8 +2,9 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { FlagDetail } from '../core/api.models';
+import { FlagDetail, OfferFailureCode } from '../core/api.models';
 import { StatusPillComponent } from '../shared/status-pill.component';
+import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
 
 /**
  * One flag in full (FR-7).
@@ -15,7 +16,7 @@ import { StatusPillComponent } from '../shared/status-pill.component';
 @Component({
   selector: 'app-flag-detail',
   standalone: true,
-  imports: [RouterLink, DatePipe, DecimalPipe, StatusPillComponent],
+  imports: [RouterLink, DatePipe, DecimalPipe, StatusPillComponent, VisitSparklineComponent],
   template: `
     <a routerLink="/flags" class="back">← All flagged customers</a>
 
@@ -47,6 +48,39 @@ import { StatusPillComponent } from '../shared/status-pill.component';
           }
         </p>
       </div>
+
+      <section class="card block timeline">
+        <h2>Visit rhythm</h2>
+        <p class="hint" style="margin:0 0 var(--space-4)">
+          Every dot is a real recorded visit. The shaded stretch is the silence that
+          triggered the flag.
+        </p>
+
+        @if (visitsFailed()) {
+          <p class="muted small" style="margin:0">
+            Couldn't load this customer's visit history.
+          </p>
+        } @else if (visits() === null) {
+          <div class="skeleton" style="height:64px"></div>
+        } @else {
+          <app-visit-sparkline [fluid]="true" [width]="640" [height]="64" [radius]="5"
+                               [visits]="visits()!" [flaggedAt]="detail.flaggedAt" />
+
+          <!-- Endpoints labelled, so the axis is readable without hovering. -->
+          @if (visits()!.length > 0) {
+            <div class="axis-labels mono small muted">
+              <span>{{ visits()![0] | date: 'd MMM yyyy' }}</span>
+              <span>Flagged {{ detail.flaggedAt | date: 'd MMM yyyy' }}</span>
+            </div>
+          }
+
+          <ul class="legend small muted">
+            <li><span class="key key-visit"></span>Visit</li>
+            <li><span class="key key-gap"></span>Quiet stretch</li>
+            <li><span class="key key-flag"></span>Flag raised</li>
+          </ul>
+        }
+      </section>
 
       <div class="grid">
         <section class="card block">
@@ -85,9 +119,15 @@ import { StatusPillComponent } from '../shared/status-pill.component';
               }
               <dt>Sent</dt>
               <dd class="mono">{{ detail.offerSentAt ? (detail.offerSentAt | date: 'd MMM yyyy, HH:mm') : '—' }}</dd>
-              @if (detail.offerFailureCode) {
+              @if (detail.offerFailureCode; as code) {
                 <dt>Reason</dt>
-                <dd class="mono small">{{ detail.offerFailureCode }}</dd>
+                <dd class="reason">
+                  {{ failureLabel(code) }}
+                  <!-- The raw code stays visible in small print: it is what
+                       support will ask for, and the sentence above it is a
+                       translation, not a replacement. -->
+                  <span class="mono small muted">{{ code }}</span>
+                </dd>
               }
             </dl>
             @if (detail.offerStatus === 'NO_CONTACT') {
@@ -142,6 +182,30 @@ import { StatusPillComponent } from '../shared/status-pill.component';
     }
     .block { padding: var(--space-4) var(--space-5) var(--space-5); }
     h2 { margin-bottom: var(--space-3); }
+    .timeline { margin-bottom: var(--space-4); }
+    .timeline h2 { margin-bottom: var(--space-1); }
+    .axis-labels {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-4);
+      margin-top: var(--space-2);
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+      list-style: none;
+      margin: var(--space-4) 0 0;
+      padding: 0;
+    }
+    .legend li { display: flex; align-items: center; gap: var(--space-2); }
+    .key { width: 10px; height: 10px; border-radius: var(--radius-full); flex: none; }
+    .key-visit { background: var(--primary-600); }
+    .key-gap { background: var(--warning-50); border: 1px solid var(--warning-600); border-radius: 2px; }
+    .key-flag { width: 3px; height: 12px; border-radius: 2px; background: var(--danger-600); }
+    /* The sentence leads; the code sits under it rather than beside it, so a
+       long reason doesn't push the code off the edge on a narrow screen. */
+    .reason { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
     dl {
       display: grid;
       grid-template-columns: auto 1fr;
@@ -171,6 +235,10 @@ export class FlagDetailComponent {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
+  /** Real transaction timestamps; null until they arrive. */
+  readonly visits = signal<string[] | null>(null);
+  readonly visitsFailed = signal(false);
+
   constructor() {
     const id = inject(ActivatedRoute).snapshot.paramMap.get('id')!;
     this.api.getFlag(id).subscribe({
@@ -187,6 +255,45 @@ export class FlagDetailComponent {
         );
       },
     });
+
+    // Fetched alongside the flag rather than after it: the two are independent
+    // reads, and the timeline is the slower one to look at anyway.
+    this.api.getFlagVisits(id).subscribe({
+      // Sorted here because the axis labels read the ends of the array; the
+      // chart sorts its own copy, but this component can't assume it did.
+      next: (history) =>
+        this.visits.set(
+          history.visits
+            .map((visit) => visit.occurredAt)
+            .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+        ),
+      // The timeline is evidence for a decision already explained above it.
+      // Losing it degrades the page; it doesn't break it.
+      error: () => this.visitsFailed.set(true),
+    });
+  }
+
+  /**
+   * The stored code in words. Deliberately says what the admin can do about it,
+   * because the code alone ("SENDER_REJECTED") tells them nothing actionable.
+   */
+  failureLabel(code: OfferFailureCode): string {
+    switch (code) {
+      case 'MISSING_CONTACT_DETAILS':
+        return 'No email or phone was on file for this customer.';
+      case 'INVALID_EMAIL_ADDRESS':
+        return 'The email address on file was rejected as malformed.';
+      case 'INVALID_PHONE_NUMBER':
+        return 'The phone number on file was rejected as malformed.';
+      case 'SENDER_TIMEOUT':
+        return 'The mail service did not respond in time. This will be retried.';
+      case 'SENDER_UNAVAILABLE':
+        return 'The mail service was unavailable. This will be retried.';
+      case 'SENDER_REJECTED':
+        return 'The mail service accepted the request but refused to send it.';
+      default:
+        return 'Sending failed for an unexpected reason.';
+    }
   }
 
   dealLabel(detail: FlagDetail): string {

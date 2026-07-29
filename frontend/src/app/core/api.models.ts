@@ -14,6 +14,19 @@ export type OfferStatus = 'PENDING' | 'SENT' | 'FAILED' | 'NO_CONTACT';
 
 export type DealType = 'PERCENT_OFF' | 'FIXED_AMOUNT_OFF' | 'FREE_ITEM';
 
+/**
+ * Mirrors `com.lucklotter.domain.OfferFailureCode` — a closed set, deliberately
+ * carrying no provider text (NFR-4).
+ */
+export type OfferFailureCode =
+  | 'MISSING_CONTACT_DETAILS'
+  | 'INVALID_EMAIL_ADDRESS'
+  | 'INVALID_PHONE_NUMBER'
+  | 'SENDER_TIMEOUT'
+  | 'SENDER_UNAVAILABLE'
+  | 'SENDER_REJECTED'
+  | 'UNKNOWN_ERROR';
+
 export interface LoginResponse {
   token: string;
   expiresAt: string;
@@ -77,7 +90,7 @@ export interface FlagDetail {
   dealValue: number | null;
   offerStatus: OfferStatus | null;
   redemptionCode: string | null;
-  offerFailureCode: string | null;
+  offerFailureCode: OfferFailureCode | null;
   offerSentAt: string | null;
 }
 

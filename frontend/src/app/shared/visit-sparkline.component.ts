@@ -21,12 +21,15 @@ interface Dot {
 @Component({
   selector: 'app-visit-sparkline',
   standalone: true,
+  host: { '[class.fluid]': 'fluid' },
   template: `
     @if (dots().length === 0) {
       <span class="muted small">No visits recorded</span>
     } @else {
-      <svg [attr.viewBox]="'0 0 ' + width + ' ' + height" [style.width.px]="width"
-           [style.height.px]="height" role="img" [attr.aria-label]="label()">
+      <svg [attr.viewBox]="'0 0 ' + width + ' ' + height"
+           [style.width]="fluid ? '100%' : width + 'px'"
+           [style.height]="fluid ? 'auto' : height + 'px'"
+           role="img" [attr.aria-label]="label()">
         <title>{{ label() }}</title>
 
         <line [attr.x1]="0" [attr.x2]="width" [attr.y1]="midY" [attr.y2]="midY" class="axis" />
@@ -49,6 +52,7 @@ interface Dot {
   `,
   styles: [`
     :host { display: inline-flex; align-items: center; }
+    :host(.fluid) { display: block; width: 100%; }
     svg { display: block; overflow: visible; }
     .axis { stroke: var(--border); stroke-width: 1; }
     .gap { fill: var(--warning-50); }
@@ -68,6 +72,14 @@ export class VisitSparklineComponent {
   @Input() width = 132;
   @Input() height = 30;
   @Input() radius = 3;
+
+  /**
+   * Scale to the container instead of sitting at a fixed pixel width. The
+   * viewBox still uses `width`/`height` as its coordinate system, so those two
+   * become the aspect ratio rather than a size — set them wide and short for a
+   * timeline that has room to breathe on a detail page but still fits a phone.
+   */
+  @Input() fluid = false;
 
   protected readonly points = signal<string[]>([]);
   protected readonly flagTime = signal<string>('');
