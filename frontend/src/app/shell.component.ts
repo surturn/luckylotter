@@ -1,12 +1,13 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
+import { ToastHostComponent } from './shared/toast-host.component';
 
 /** Frame around the authenticated views: brand, nav, and sign-out. */
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, ToastHostComponent],
   template: `
     <header class="top">
       <div class="bar">
@@ -32,6 +33,8 @@ import { AuthService } from './core/auth.service';
     <main class="content">
       <router-outlet />
     </main>
+
+    <app-toast-host />
   `,
   styles: [`
     .top {

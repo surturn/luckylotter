@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { BusinessConfig } from '../core/api.models';
+import { ToastService } from '../shared/toast.service';
 
 /**
  * Trigger tuning and deal defaults (FR-6, US-1, US-3).
@@ -21,9 +22,6 @@ import { BusinessConfig } from '../core/api.models';
       Controls how quickly a quiet customer is flagged, and what offer they're sent.
     </p>
 
-    @if (saved()) {
-      <div class="banner banner-success" role="status">Settings saved.</div>
-    }
     @if (error(); as message) {
       <div class="banner banner-error" role="alert">{{ message }}</div>
     }
@@ -135,6 +133,7 @@ import { BusinessConfig } from '../core/api.models';
 })
 export class ConfigComponent {
   private readonly api = inject(ApiService);
+  private readonly toasts = inject(ToastService);
 
   readonly presets = [
     { value: 1.2, label: 'Sensitive — flag soon after they slip' },
@@ -145,7 +144,6 @@ export class ConfigComponent {
   readonly config = signal<BusinessConfig | null>(null);
   readonly loading = signal(true);
   readonly busy = signal(false);
-  readonly saved = signal(false);
   readonly error = signal<string | null>(null);
 
   readonly form = inject(FormBuilder).nonNullable.group({
@@ -222,7 +220,6 @@ export class ConfigComponent {
       return;
     }
     this.busy.set(true);
-    this.saved.set(false);
     this.error.set(null);
 
     const value = this.form.getRawValue();
@@ -236,8 +233,11 @@ export class ConfigComponent {
       next: (config) => {
         this.config.set(config);
         this.busy.set(false);
-        this.saved.set(true);
+        this.toasts.success('Settings saved.');
       },
+      // A save failure stays an inline banner: the admin has to do something
+      // about it, and a message that clears itself after four seconds is the
+      // wrong carrier for that.
       error: (response) => {
         this.busy.set(false);
         this.error.set(
