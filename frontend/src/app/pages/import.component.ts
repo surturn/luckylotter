@@ -213,6 +213,18 @@ export class ImportComponent {
       required: true,
     },
     {
+      key: 'customerName',
+      label: 'Customer name',
+      hint: 'Used to address the offer email. Left out, the offer still sends without a greeting.',
+      required: false,
+    },
+    {
+      key: 'usualItem',
+      label: 'Usual order',
+      hint: 'Named in the offer email when present. Never guessed — left out, the email omits it.',
+      required: false,
+    },
+    {
       key: 'externalTxnId',
       label: 'Transaction ID',
       hint: 'Must be unique per sale. This is how a re-uploaded row is recognised and skipped.',

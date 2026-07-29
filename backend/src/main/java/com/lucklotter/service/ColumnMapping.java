@@ -14,6 +14,8 @@ import java.util.Map;
  */
 public record ColumnMapping(
     String customerRef,
+    String customerName,
+    String usualItem,
     String externalTxnId,
     String amount,
     String occurredAt,
@@ -23,6 +25,8 @@ public record ColumnMapping(
 
     /** Our field names, in the order the mapping form should present them. */
     public static final String CUSTOMER_REF = "customerRef";
+    public static final String CUSTOMER_NAME = "customerName";
+    public static final String USUAL_ITEM = "usualItem";
     public static final String EXTERNAL_TXN_ID = "externalTxnId";
     public static final String AMOUNT = "amount";
     public static final String OCCURRED_AT = "occurredAt";
@@ -41,6 +45,15 @@ public record ColumnMapping(
     private static final Map<String, List<String>> SYNONYMS = Map.of(
         CUSTOMER_REF, List.of("customerref", "customerid", "customercode", "customer", "custid",
                               "clientid", "memberid", "member", "loyaltyid", "cardnumber", "cardno"),
+        // Deliberately excludes a bare "customer", which CUSTOMER_REF claims:
+        // in a till export that column is far more often the ID than the name,
+        // and suggesting one header for two fields would be worse than leaving
+        // the name unmapped for the admin to set.
+        CUSTOMER_NAME, List.of("customername", "name", "fullname", "firstname", "givenname",
+                               "clientname", "membername", "contactname"),
+        USUAL_ITEM, List.of("usualitem", "usualorder", "usual", "regularorder", "favouriteitem",
+                            "favoriteitem", "favourite", "favorite", "preferreditem", "item",
+                            "product", "drink"),
         EXTERNAL_TXN_ID, List.of("externaltxnid", "transactionid", "txnid", "transactionref",
                                  "receiptno", "receiptnumber", "receipt", "invoiceno", "invoicenumber",
                                  "invoice", "ordernumber", "orderid", "orderno", "saleid", "reference"),
@@ -61,6 +74,8 @@ public record ColumnMapping(
     public Map<String, String> asMap() {
         Map<String, String> map = new LinkedHashMap<>();
         map.put(CUSTOMER_REF, customerRef);
+        map.put(CUSTOMER_NAME, customerName);
+        map.put(USUAL_ITEM, usualItem);
         map.put(EXTERNAL_TXN_ID, externalTxnId);
         map.put(AMOUNT, amount);
         map.put(OCCURRED_AT, occurredAt);
@@ -79,6 +94,8 @@ public record ColumnMapping(
     public static ColumnMapping suggestFor(List<String> headers) {
         return new ColumnMapping(
                 match(headers, CUSTOMER_REF),
+                match(headers, CUSTOMER_NAME),
+                match(headers, USUAL_ITEM),
                 match(headers, EXTERNAL_TXN_ID),
                 match(headers, AMOUNT),
                 match(headers, OCCURRED_AT),

@@ -1,0 +1,15 @@
+-- ----------------------------------------------------------------------------
+-- The customer's usual order (FR-1, FR-5).
+--
+-- Optional, like name and the contact fields. Supplied by the POS, never
+-- inferred: transactions carry an amount but no line items, so there is nothing
+-- here to derive a favourite from. Writing "your usual matcha" to someone who
+-- drinks americanos is worse than saying nothing, so the email omits the whole
+-- clause when this is null rather than guessing.
+--
+-- Deriving this from real line-item history is the Phase 2 upgrade; until the
+-- POS sends items, a declared value is the only honest one.
+--
+-- Personal data: keep it out of logs, same rule as name (NFR-4).
+-- ----------------------------------------------------------------------------
+ALTER TABLE customers ADD COLUMN usual_item VARCHAR(120);

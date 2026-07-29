@@ -103,8 +103,16 @@ public class IngestionService {
     /**
      * Contact details are filled in, never cleared: a POS export that omits the
      * email on a later sale must not erase one an earlier sale supplied (FR-1).
+     *
+     * <p>The display name follows the same rule for the same reason.
      */
     private void applyContactDetails(Customer customer, TransactionIngestRequest request) {
+        if (request.customerName() != null && !request.customerName().isBlank()) {
+            customer.setName(request.customerName().trim());
+        }
+        if (request.usualItem() != null && !request.usualItem().isBlank()) {
+            customer.setUsualItem(request.usualItem().trim());
+        }
         if (request.contactEmail() != null && !request.contactEmail().isBlank()) {
             customer.setContactEmail(request.contactEmail().trim());
         }

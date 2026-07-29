@@ -1,0 +1,12 @@
+-- ----------------------------------------------------------------------------
+-- Customer display name (FR-1, FR-5).
+--
+-- Optional, like contact_email and contact_phone, and for the same reason: POS
+-- exports disagree about what they carry, and a customer without a name is
+-- still tracked, still flagged, and still contactable. The offer email falls
+-- back to a generic greeting rather than rendering an empty one.
+--
+-- 160 chars matches external_ref. This column is PII: it must never reach a log
+-- line (NFR-4), which is why nothing in the ingest or scan paths logs it.
+-- ----------------------------------------------------------------------------
+ALTER TABLE customers ADD COLUMN name VARCHAR(160);

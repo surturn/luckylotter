@@ -50,6 +50,22 @@ public class Customer {
     @Column(name = "external_ref", nullable = false, length = 160)
     private String externalRef;
 
+    /**
+     * Display name, for addressing the customer in an offer. Optional, and PII:
+     * never log it (NFR-4). Use {@link #getExternalRef()} to identify a customer
+     * in logs and error messages.
+     */
+    @Column(name = "name", length = 160)
+    private String name;
+
+    /**
+     * What this customer usually orders, as supplied by the POS — never
+     * inferred from transaction history, which carries no line items. Optional
+     * and personal: never log it (NFR-4).
+     */
+    @Column(name = "usual_item", length = 120)
+    private String usualItem;
+
     @Column(name = "contact_email", length = 255)
     private String contactEmail;
 
@@ -82,6 +98,21 @@ public class Customer {
     /** True once there is enough history for the cadence to mean something. */
     public boolean hasEstablishedCadence() {
         return transactionCount >= RetentionConstants.MIN_TRANSACTIONS && avgIntervalDays != null;
+    }
+
+    /**
+     * The name to greet this customer by, or null when none is on file.
+     *
+     * <p>First token only: POS exports carry full names, and "Hi Sydney" reads
+     * like a person wrote it where "Hi Sydney Kamau" reads like a mail merge.
+     * Callers must handle null rather than substituting an empty string — a
+     * greeting addressed to nobody is worse than no greeting.
+     */
+    public String greetingName() {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return name.trim().split("\\s+")[0];
     }
 
     /** False when the customer has neither an email nor a phone (FR-5). */

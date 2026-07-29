@@ -21,6 +21,9 @@ import java.util.UUID;
  * <p>{@code contactEmail} and {@code contactPhone} are optional: not every POS
  * exposes customer contact details. Supplying neither means any offer generated
  * for this customer will be marked {@code NO_CONTACT} rather than sent.
+ *
+ * <p>{@code customerName} is optional and used only to address the offer. It is
+ * PII and must never be logged (NFR-4).
  */
 public record TransactionIngestRequest(
 
@@ -30,6 +33,12 @@ public record TransactionIngestRequest(
     @NotBlank(message = "customerRef is required")
     @Size(max = 160)
     String customerRef,
+
+    @Size(max = 160)
+    String customerName,
+
+    @Size(max = 120)
+    String usualItem,
 
     @NotBlank(message = "externalTxnId is required")
     @Size(max = 160)

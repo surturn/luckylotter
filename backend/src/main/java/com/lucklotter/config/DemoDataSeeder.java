@@ -266,8 +266,10 @@ public class DemoDataSeeder implements CommandLineRunner {
 
     private void ingest(Business business, String customerRef, String externalTxnId,
                         Instant occurredAt, String email, String phone) {
+        // No customerName: the seeded customers are deliberately anonymous POS
+        // refs, which also exercises the offer email's no-name fallback.
         ingestion.ingest(business.getId(), new TransactionIngestRequest(
-                business.getId(), customerRef, externalTxnId,
+                business.getId(), customerRef, null, null, externalTxnId,
                 new BigDecimal("450.00"), occurredAt, email, phone));
     }
 }

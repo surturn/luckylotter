@@ -73,13 +73,15 @@ public class TransactionController {
     public ImportResultResponse importCsv(@AuthenticationPrincipal AdminPrincipal admin,
                                           @RequestPart("file") MultipartFile file,
                                           @RequestParam("customerRef") String customerRef,
+                                          @RequestParam(value = "customerName", required = false) String customerName,
+                                          @RequestParam(value = "usualItem", required = false) String usualItem,
                                           @RequestParam("externalTxnId") String externalTxnId,
                                           @RequestParam("amount") String amount,
                                           @RequestParam("occurredAt") String occurredAt,
                                           @RequestParam(value = "contactEmail", required = false) String contactEmail,
                                           @RequestParam(value = "contactPhone", required = false) String contactPhone) {
-        ColumnMapping mapping = new ColumnMapping(
-                customerRef, externalTxnId, amount, occurredAt, contactEmail, contactPhone);
+        ColumnMapping mapping = new ColumnMapping(customerRef, customerName, usualItem,
+                externalTxnId, amount, occurredAt, contactEmail, contactPhone);
         return csvImportService.importCsv(admin.businessId(), file, mapping);
     }
 }

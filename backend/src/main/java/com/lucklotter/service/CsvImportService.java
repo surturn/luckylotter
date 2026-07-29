@@ -210,6 +210,8 @@ public class CsvImportService {
         return new TransactionIngestRequest(
                 businessId,
                 customerRef,
+                optional(row, columns, ColumnMapping.CUSTOMER_NAME),
+                optional(row, columns, ColumnMapping.USUAL_ITEM),
                 externalTxnId,
                 amount,
                 parseTimestamp(required(row, columns, ColumnMapping.OCCURRED_AT, "date")),
