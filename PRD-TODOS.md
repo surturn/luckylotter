@@ -60,38 +60,38 @@ the Testcontainers/Docker-API notes now live there.
 
 ---
 
-## ▶ NEXT UP ON RESUME — UI pass, sections 4–6
+## UI pass, sections 4–6 — ✅ done (2026-07-29)
 
-Sections 1–3 of the UI redesign are done and committed (design system, overview
-screen + aggregates endpoint, visit-rhythm sparkline + table). **Sections 4, 5
-and 6 are the top of the queue when work resumes**, in that order.
-
-Two constraints apply to all three, from the original brief:
-
-1. **Do not change user-facing copy.** The plain-English explanations — "judged
-   against their own rhythm…", the worked sensitivity example, the no-contact
-   banner — are deliberate and stay exactly as written.
-2. **Presentation only.** No changes to existing API contracts, DTOs or backend
-   behaviour. *Additive* read-only endpoints are in scope where the UI genuinely
-   needs data that isn't exposed — that is how `/v1/stats/overview` and
-   `/v1/flags/{id}/visits` came about — but never fake or client-derive the
-   data instead. See the resolved note under §12 of the PRD.
+Sections 1–3 (design system, overview screen + aggregates endpoint,
+visit-rhythm sparkline + table) were done earlier. Sections 4, 5 and 6 are now
+complete. Both constraints from the original brief held: **no user-facing copy
+was changed** (the explain banner, the worked sensitivity example, the
+no-contact callout and "Settings saved." are all still verbatim), and the work
+was **presentation-only** — no API contract, DTO or backend behaviour changed,
+and no new endpoint was needed since `GET /v1/flags/{id}/visits` already
+existed.
 
 ### Section 4 — Flag detail, built out as a real page
-- [ ] Full visit timeline: the sparkline at detail size, not the inline table version. Data is already there via `GET /v1/flags/{id}/visits` (support)
-- [ ] Present `threshold_days_applied` + `avg_interval_days_at_flag` as "why this customer was flagged" in plain language (FR-7, §11)
-- [ ] The offer generated, its delivery status, and `failure_code` when present (FR-5, FR-7)
-- Already in place, don't redo: the explain banner, the redemption code, and the `NO_CONTACT` blocking callout.
+- [x] Full visit timeline: a "Visit rhythm" card between the explain banner and the two detail columns, driven by `GET /v1/flags/{id}/visits`. `VisitSparklineComponent` gained a `fluid` input so the same component scales to the container at detail size (640×64 viewBox) instead of sitting at the table's fixed 132px. Endpoints of the axis are labelled with real dates, plus a legend for visit / quiet stretch / flag marker (support)
+- [x] `threshold_days_applied` + `avg_interval_days_at_flag` as "why this customer was flagged" — the existing explain banner already carried this in plain language, so its copy was left untouched; the timeline below it is now the visual evidence for the same two numbers (FR-7, §11)
+- [x] The offer, its delivery status, and `failure_code` when present — the raw enum is no longer shown bare. `failureLabel()` maps each `OfferFailureCode` to a sentence saying what happened and whether it will retry, with the code itself kept in small print underneath for support (FR-5, FR-7)
 
 ### Section 5 — Trigger settings
-- [ ] Success **toast** on save — currently an inline success banner, which works but isn't what the brief asked for (US-1, US-3)
-- Already in place, don't redo: restyled to the design system, the worked example updates live as sensitivity/clamps change, and the cross-field rule (never-flag-before ≤ always-flag-by) validates inline and blocks submit.
+- [x] Success **toast** on save. New `ToastService` + `ToastHostComponent` (mounted once in the shell, always-present `aria-live` region so the announcement is reliable), auto-dismissing after 4s and manually dismissible. **Save *failures* deliberately stay inline banners** — a message the admin has to act on should not clear itself on a timer (US-1, US-3)
 
 ### Section 6 — App shell
-- [ ] A real logo mark instead of the gradient square (support)
-- [ ] Decide sidebar vs. refined top nav; verify responsive down to tablet (support)
-- [ ] Treat the business name as an explicit tenant-context indicator rather than a subtitle (support)
-- Already in place, don't redo: active-route indication carried by weight + tint, not colour alone.
+- [x] A real logo mark: an inline SVG of a rhythm with one beat missing and a dashed marker where it was noticed — the product's own behaviour, rather than the placeholder gradient square. Gradient stops are styled from CSS because `stop-color` as a presentation attribute doesn't resolve `var()` (support)
+- [x] **Decided: refined top nav, not a sidebar.** Four destinations don't earn a permanent ~240px column, and the two screens that matter — the flag table and the visit timeline — are the width-hungry ones; a sidebar would spend width on navigation that the content is short of. The rationale is recorded in the `ShellComponent` docblock along with the trigger to revisit (roughly seven nav entries, or a second level) (support)
+- [x] Responsive: at ≤900px the nav drops to its own full-width row and scrolls horizontally rather than stacking (which would cost most of the viewport height); at ≤560px the tenant chip sheds its label. Brand is now a link to the overview (support)
+- [x] Business name is an explicit tenant-context indicator: a bordered "Viewing <business>" chip next to Sign out — the control that changes it — rather than a subtitle under the product name. Truncates instead of wrapping so a long trading name can't push the nav onto a second row (support)
+
+> **Verification.** `ng build` is clean and the rebuilt frontend container serves
+> the new bundles (checked by grepping the built chunks for the new markup, and
+> against real seeded data: `/v1/flags/{id}/visits` returns 7 real timestamps for
+> `POS-4011`). The tablet and phone breakpoints were **not** confirmed in a
+> rendered browser — no headless browser was available in that session — so
+> ≤900px and ≤560px are reasoned from the layout, not observed. Worth one manual
+> pass at those widths.
 
 ---
 
@@ -174,6 +174,7 @@ Two constraints apply to all three, from the original brief:
 - [x] `POST /v1/transactions` — controller + service, DTO validation for business ID, customer ref, timestamp, amount (FR-1, §10)
 - [x] Upsert-by-`external_ref` customer resolution: create the customer on first sighting (FR-1)
 - [x] Update contact fields on ingest when the payload supplies them — a later transaction should be able to fill a previously-missing email/phone (FR-1)
+- [x] `customers.name` + `customers.usual_item` (V3, V4) — optional, and optional on ingest and in the CSV mapping, following the same fill-never-clear rule as the contact fields. Both are PII and are never logged (NFR-4). They exist to make the offer email personal; see M2-3 (FR-1, FR-5)
 - [x] Idempotency: accept `Idempotency-Key` header or natural POS txn ID; duplicate submission is a no-op, not a second visit (NFR-3)
 - [ ] Test: replaying the same transaction twice leaves one row and does not shift the cadence (NFR-3)
 
@@ -220,6 +221,9 @@ Two constraints apply to all three, from the original brief:
 - [x] Sender queries `PENDING`/`FAILED` only — `NO_CONTACT` is terminal and must never be retried (FR-5)
 - [x] Senders map provider errors onto the `OfferFailureCode` enum; the provider's own message goes to the correlated log, never into the column (NFR-4)
 - [ ] Test: a sender that throws with a phone number in its exception message stores only a code — no PII reaches `offers.failure_code` (NFR-4)
+- [x] Personalised offer copy (2026-07-29): greeting by first name, the customer's usual order in both subject and body, and how long they've been away. **Every clause is dropped when the fact behind it is missing** rather than filled with a guess — a customer with no name gets "Hello,", one with no usual order gets "since we saw you", and the mail still sends. The time away is rounded to words ("a couple of weeks"), because the exact day count is accurate but reads as surveillance (FR-5)
+- [x] `usual_item` is **declared by the POS, never inferred**: transactions carry an amount but no line items, so there is nothing to derive a favourite from. Naming the wrong drink is worse than naming none (FR-1)
+- [x] All customer- and admin-supplied values interpolated into the email HTML are escaped — a POS export is not trusted markup (NFR-4)
 - [x] Ensure a send failure does not roll back the flag/offer records (FR-5)
 - [ ] Test with a deliberately failing sender: offer lands at `FAILED`, flag stays `ACTIVE` (FR-5)
 
@@ -318,6 +322,10 @@ M0, but the starred ones block the tasks named.
 - **Multi-tenancy (§12)** — schema is multi-tenant regardless; the open question is only whether concurrent multi-business pilots need testing in Phase 1.
 - **Deal value logic (§12)** — static default per business, or escalating by inactivity duration? Affects M2-2. Assumed static for now.
 - **Offer expiry** — the `offers` table has no expiry column and no FR covers offer/deal validity period. Intentional for Phase 1?
+
+- **Usual order: declared vs. derived** — `customers.usual_item` is whatever the POS sends, and is only as fresh as the last export that set it. Deriving it from real line-item history would need `transactions` to carry items, which is a Phase 2 schema change. Until then the field can go stale, and nothing detects that: a customer who switched from matcha to americano six months ago still gets emailed about matcha. Worth a "last confirmed" timestamp if this survives the pilot.
+
+- **Personalisation vs. creepiness** — the offer email names the customer's usual order and how long they've been away. That is the warmth the concept depends on, but it is also the business demonstrating how closely it tracks them. The time away is deliberately vague for this reason. A pilot should watch for unsubscribe/complaint signal specifically on the personalised copy, since no Phase 1 metric would otherwise catch it.
 - **Flag list date filtering** — status filtering is now in scope (see M3-1); a `flagged_at` date-range filter is still unspecified in §10.
 - **Cadence definition** — "average visit interval" is implemented as the mean gap across all visits. A customer whose rhythm *changed* (weekly for a year, then monthly for three months) has a misleading mean. A trailing window (say, last 10 visits) would track better. Worth revisiting if the §11 precision audit comes in under 90%.
 - **Multiplier legibility** — `sensitivity_multiplier = 1.5` is precise but not something a café owner will reason about. The config UI may need to present it as coarse choices ("sensitive / balanced / relaxed") mapping to multipliers underneath. Flagged as a UX task in the config section, not a blocker.
