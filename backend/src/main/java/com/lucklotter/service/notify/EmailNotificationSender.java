@@ -19,6 +19,8 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 /**
  * Delivers offers by email (FR-5).
@@ -63,8 +65,8 @@ public class EmailNotificationSender implements NotificationSender {
             MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(recipient);
-            helper.setSubject("We've missed you at " + businessName);
-            helper.setText(body(offer, businessName), true);
+            helper.setSubject(subject(customer, businessName));
+            helper.setText(body(offer, customer, businessName), true);
             mailSender.send(message);
         } catch (MessagingException | MailAuthenticationException e) {
             throw new NotificationException(OfferFailureCode.SENDER_REJECTED,
@@ -87,19 +89,103 @@ public class EmailNotificationSender implements NotificationSender {
     }
 
     /**
+     * Personalised when a name is on file, generic when it isn't — never
+     * "Hi ," which is the failure mode that makes an automated mail obvious.
+     *
+     * <p>The usual order goes in the subject when we know it: "your matcha is
+     * waiting" is recognisably about this customer in an inbox preview, where
+     * "we've missed you" is recognisably a mailshot.
+     */
+    private String subject(Customer customer, String businessName) {
+        String name = customer.greetingName();
+        String usual = customer.getUsualItem();
+
+        if (name != null && usual != null) {
+            return name + ", your " + usual + " is waiting at " + businessName;
+        }
+        if (name != null) {
+            return name + ", we've missed you at " + businessName;
+        }
+        return "We've missed you at " + businessName;
+    }
+
+    /**
+     * How long they've been away, in words a person would use.
+     *
+     * <p>Rounded deliberately. "It's been 23 days" is accurate and slightly
+     * unsettling — it reads as surveillance. "A few weeks" says the same thing
+     * in the register a barista would use, and is just as true.
+     *
+     * <p>Returns null when the dates aren't there to support a claim, in which
+     * case the sentence is dropped rather than padded with a guess.
+     */
+    private String awayFor(Offer offer, Customer customer) {
+        Instant lastVisit = customer.getLastVisitAt();
+        Instant flaggedAt = offer.getFlag() == null ? null : offer.getFlag().getFlaggedAt();
+        if (lastVisit == null || flaggedAt == null) {
+            return null;
+        }
+        long days = ChronoUnit.DAYS.between(lastVisit, flaggedAt);
+        if (days < 10) {
+            return "a little while";
+        }
+        if (days < 21) {
+            return "a couple of weeks";
+        }
+        if (days < 45) {
+            return "a few weeks";
+        }
+        return "a while";
+    }
+
+    /**
      * Inline styles and a table-free layout, because email clients discard
      * stylesheets and disagree about everything else.
      */
-    private String body(Offer offer, String businessName) {
+    private String body(Offer offer, Customer customer, String businessName) {
         String code = offer.getRedemptionCode() == null ? "" : offer.getRedemptionCode();
+        String name = customer.greetingName();
+
+        // Rendered as its own paragraph, or omitted entirely. Everything
+        // interpolated into this HTML is escaped: a customer name arrives from a
+        // POS export and is not trusted markup.
+        String greeting = "<p style=\"font-size:16px;line-height:1.5;margin:0 0 16px;\">"
+                + (name == null ? "Hello," : "Hi " + escape(name) + ",")
+                + "</p>";
+
+        // "It's been a few weeks since your usual black matcha tea." Each clause
+        // is dropped independently when the fact behind it is missing, so the
+        // sentence degrades to "It's been a while since we saw you" rather than
+        // asserting something we don't know.
+        String usual = customer.getUsualItem();
+        String away = awayFor(offer, customer);
+        String missedYou = "It's been " + (away == null ? "a while" : away)
+                + (usual == null
+                        ? " since we saw you at <strong>" + escape(businessName) + "</strong>."
+                        : " since your usual <strong>" + escape(usual) + "</strong> at <strong>"
+                          + escape(businessName) + "</strong>.");
+
+        // Only when we actually know the order — this is the line that carries
+        // the warmth, and inventing it would be the one thing that destroys it.
+        String usualLine = usual == null ? "" : """
+              <p style="font-size:16px;line-height:1.5;margin:0 0 16px;">
+                We've still got it on the menu.
+              </p>
+            """;
+
         return """
             <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
                         max-width:520px;margin:0 auto;padding:24px;color:#0f172a;">
+              %s
               <p style="font-size:16px;line-height:1.5;margin:0 0 16px;">
-                It's been a while since we saw you at <strong>%s</strong>.
+                %s
               </p>
+              %s
+              <!-- Deliberately not "the next one's on us": the deal is whatever
+                   the business configured, and a percentage off is not a free
+                   drink. The card below states the actual offer. -->
               <p style="font-size:16px;line-height:1.5;margin:0 0 24px;">
-                Here's something to bring you back:
+                Here's a little something for when you're next passing:
               </p>
               <div style="border:1px solid #dbeafe;border-radius:12px;padding:20px;
                           background:#f8fafc;text-align:center;">
@@ -114,7 +200,22 @@ public class EmailNotificationSender implements NotificationSender {
                 See you soon — the team at %s.
               </p>
             </div>
-            """.formatted(businessName, dealDescription(offer), code, businessName);
+            """.formatted(greeting, missedYou, usualLine, dealDescription(offer),
+                          escape(code), escape(businessName));
+    }
+
+    /**
+     * Minimal HTML escaping for values interpolated into the template above.
+     *
+     * <p>A customer name comes from a POS export, and a business name from admin
+     * input; neither is trusted markup. Without this, an apostrophe-heavy trading
+     * name is merely ugly but an angle bracket breaks the layout outright.
+     */
+    private static String escape(String value) {
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 
     private String dealDescription(Offer offer) {
