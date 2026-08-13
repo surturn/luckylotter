@@ -15,6 +15,16 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     Optional<Customer> findByBusinessIdAndExternalRef(UUID businessId, String externalRef);
 
     /**
+     * Every customer of one business, for the cadence rebuild (FR-2).
+     *
+     * <p>Unpaged on purpose: the rebuild has to see the whole population or it
+     * leaves some customers on a stale cadence, which is the condition it
+     * exists to clear. Fine at pilot scale; if a business ever outgrows one
+     * page of customers this needs to stream rather than list.
+     */
+    List<Customer> findByBusinessId(UUID businessId);
+
+    /**
      * Customers with enough history to have a cadence — the flaggable
      * population (FR-2).
      *
