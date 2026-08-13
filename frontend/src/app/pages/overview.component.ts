@@ -63,7 +63,11 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
               {{ data.recoveryRate.recovered | number }} of
               {{ data.recoveryRate.totalFlags | number }}
               flagged {{ data.recoveryRate.totalFlags === 1 ? 'customer' : 'customers' }} visited again.
-              @if (data.comparison.recoveryPercentChange !== null) {
+              <!-- Only claimed when the earlier period had enough flags to have
+                   had a rate at all. A jump "from 0%" over two flags is a fact
+                   about the sample size, not about retention. -->
+              @if (data.comparison.recoveryPercentChange !== null
+                    && data.comparison.flagsRaisedBefore >= 5) {
                 <span class="hero-delta">
                   {{ data.comparison.recoveryPercentChange! > 0 ? '↑' : '↓' }}
                   {{ abs(data.comparison.recoveryPercentChange!) | number: '1.0-1' }}
@@ -100,7 +104,8 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           @if (data.comparison.offersSentChangePercent !== null) {
             <span class="delta" [class.down]="data.comparison.offersSentChangePercent! < 0">
               {{ data.comparison.offersSentChangePercent! > 0 ? '↑' : '↓' }}
-              {{ abs(data.comparison.offersSentChangePercent!) | number: '1.0-0' }}%
+              {{ deltaText(data.comparison.offersSentChangePercent!,
+                           data.comparison.offersSentBefore) }}
               <span class="delta-note">vs previous 8 weeks</span>
             </span>
           }
@@ -352,6 +357,23 @@ export class OverviewComponent {
   /** Direction is carried by the arrow; the number itself reads unsigned. */
   abs(value: number): number {
     return Math.abs(value);
+  }
+
+  /**
+   * Percentages need a base worth dividing by.
+   *
+   * Two offers becoming twenty-four is a true "+1,100%", and it reads as a
+   * broken widget — the figure is dominated by how small the denominator was,
+   * not by what changed. Below a handful of events the absolute move is both
+   * more honest and easier to read, so this switches to "from 2" and lets the
+   * headline number carry the rest.
+   */
+  deltaText(changePercent: number, before: number): string {
+    const MEANINGFUL_BASE = 5;
+    if (before < MEANINGFUL_BASE) {
+      return `from ${before}`;
+    }
+    return `${Math.round(Math.abs(changePercent))}%`;
   }
 
   /**
