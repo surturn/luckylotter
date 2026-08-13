@@ -228,9 +228,11 @@ existed.
 - [x] Concurrency: the check is a count-then-insert over a rolling window, which cannot be a counter column because old offers age out of it, so two overlapping scans would both read a count under the cap and both insert. `BusinessRepository.findByIdForUpdate` takes a `PESSIMISTIC_WRITE` lock inside the existing per-customer `REQUIRES_NEW` transaction — per customer, not around the batch, which would serialize the whole run and undo the design that stops one failing customer rolling back everything before it (FR-4, NFR-3)
 - [x] Tests: `OfferBudgetCeilingTest`, 5 cases against real Postgres — the schema accepts the new status with a null failure code, undeliverable offers don't consume budget, pending/sent/failed all count, offers roll out of the window, and spend is scoped per business (FR-4)
 - [ ] Test: two genuinely concurrent flag creations at the cap boundary produce exactly `cap` offers — the lock is reasoned, not yet demonstrated. Pairs with the existing overlapping-scan test under M2-1 (FR-4, NFR-3)
-- [ ] Test: a customer inside their cooldown is not re-flagged by a scan, and a business at its cap gets `SUPPRESSED_BUDGET` — both end to end through `FlagCreationService`, whose wiring is currently only covered by its parts (FR-4)
-- [ ] Test: a customer with neither contact field gets an offer at `NO_CONTACT`, and the stub sender never picks it up (FR-5)
-- [ ] Test: flag creation and offer creation commit in the same transaction — no flag without an offer (FR-4, FR-5)
+- [x] Test: a customer inside their cooldown is not re-flagged by a scan, and a business at its cap gets `SUPPRESSED_BUDGET` — both end to end through `FlagCreationService`. `FlagCreationServiceTest`, 8 cases (2026-08-13). Deliberately **not** transactional: `@DataJpaTest` would otherwise roll each test back, but `flagAndGenerateOffer` is `REQUIRES_NEW` and would suspend that transaction and never see uncommitted fixtures — so fixtures commit for real and `@AfterEach` truncates. That is also the only shape in which `findByIdForUpdate`'s lock runs against anything (FR-4)
+- [x] Test: ordering — an uncontactable customer at an exhausted cap stays `NO_CONTACT` rather than `SUPPRESSED_BUDGET`. An offer that can never reach anyone is not spend, so reporting it as budget-suppressed would both overstate what the programme costs and hide the missing contact details (FR-4, FR-5)
+- [x] Test: a customer with neither contact field gets an offer at `NO_CONTACT` (FR-5)
+- [ ] Test: …and the stub sender never picks a `NO_CONTACT` offer up — the status is now covered, the dispatcher's treatment of it is not. Belongs with the sender's own tests under M2-3 (FR-5)
+- [x] Test: flag creation and offer creation commit in the same transaction — no flag without an offer, the offer links back to the flag, and it carries a redemption code (FR-4, FR-5)
 
 ### M2-3: Notification delivery
 - [x] Define the `NotificationSender` interface (§6)
