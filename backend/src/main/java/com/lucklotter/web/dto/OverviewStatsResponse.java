@@ -15,7 +15,7 @@ import java.util.List;
 public record OverviewStatsResponse(
     /** Customers with enough history to have a cadence, i.e. flaggable. */
     long customersMonitored,
-    /** Seen, but under {@code MIN_TRANSACTIONS} — no rhythm yet, never flagged. */
+    /** Seen, but under {@code MIN_TRANSACTIONS} visits — no rhythm yet, never flagged. */
     long customersBelowThreshold,
     long activeFlags,
     long resolvedFlags,

@@ -146,6 +146,24 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
                 </span>
               </div>
             }
+            @if (detail.offerStatus === 'SUPPRESSED_BUDGET') {
+              <!-- Not an error, so not role="alert": the cap did what it was set
+                   to do. The customer is shown anyway, because the point of
+                   recording this is that the admin can see who they didn't
+                   reach and decide whether that was the right trade. -->
+              <div class="callout-blocked">
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" clip-rule="evenodd"
+                        d="M10 1.5a8.5 8.5 0 100 17 8.5 8.5 0 000-17zM9 5.75a1 1 0 112 0v5a1 1 0 11-2 0v-5zM10 15a1.15 1.15 0 110-2.3 1.15 1.15 0 010 2.3z" />
+                </svg>
+                <span>
+                  <strong>This one wasn't sent — your offer limit was already used up.</strong>
+                  This customer still went quiet, and you're still seeing them here. Nothing will
+                  retry: by the time the limit resets, a win-back this old isn't worth sending.
+                  Raise the limit in Settings if you're seeing this often.
+                </span>
+              </div>
+            }
           } @else {
             <p class="muted small" style="margin:0">No offer was generated for this flag.</p>
           }

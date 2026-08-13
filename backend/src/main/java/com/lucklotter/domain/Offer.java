@@ -54,7 +54,7 @@ public class Offer {
     private BigDecimal dealValue;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @Column(nullable = false, length = 24)
     private OfferStatus status = OfferStatus.PENDING;
 
     /**
@@ -111,5 +111,18 @@ public class Offer {
         this.status = OfferStatus.NO_CONTACT;
         this.sentAt = null;
         this.failureCode = OfferFailureCode.MISSING_CONTACT_DETAILS;
+    }
+
+    /**
+     * Terminal: the business's offer cap for this window was already spent.
+     *
+     * <p>Carries no {@link OfferFailureCode} — nothing failed. The send was
+     * never attempted, which is a spending decision rather than a delivery
+     * outcome, and giving it a failure code would put it in the retry backlog.
+     */
+    public void markSuppressedBudget() {
+        this.status = OfferStatus.SUPPRESSED_BUDGET;
+        this.sentAt = null;
+        this.failureCode = null;
     }
 }

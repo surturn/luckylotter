@@ -8,6 +8,10 @@ import { FlagStatus, OfferStatus } from '../core/api.models';
  * `FAILED`: a failed send is a problem with the system, an un-contactable
  * customer is a gap in the business's own POS data, and the two need different
  * responses from the admin (FR-5).
+ *
+ * `SUPPRESSED_BUDGET` is deliberately neutral rather than amber or red. Nothing
+ * went wrong — the business set a cap and the cap held. It still needs a label
+ * an admin can act on, since the remedy (raise the cap) is theirs (FR-4).
  */
 @Component({
   selector: 'app-status-pill',
@@ -24,15 +28,22 @@ export class StatusPillComponent {
         return 'No offer';
       case 'NO_CONTACT':
         return 'No contact details';
+      case 'SUPPRESSED_BUDGET':
+        return 'Budget reached';
       default:
         return this.status.charAt(0) + this.status.slice(1).toLowerCase();
     }
   }
 
   get ariaLabel(): string {
-    return this.status === 'NO_CONTACT'
-      ? 'No contact details on file — this offer cannot be sent'
-      : this.label;
+    switch (this.status) {
+      case 'NO_CONTACT':
+        return 'No contact details on file — this offer cannot be sent';
+      case 'SUPPRESSED_BUDGET':
+        return 'Your offer cap for this period was already used — this offer was not sent';
+      default:
+        return this.label;
+    }
   }
 
   get cssClass(): string {

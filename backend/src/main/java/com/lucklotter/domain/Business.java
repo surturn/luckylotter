@@ -49,6 +49,32 @@ public class Business {
     @Column(name = "max_threshold_days", nullable = false)
     private int maxThresholdDays = 60;
 
+    /**
+     * Floor on how long a customer is left alone after an offer reaches them,
+     * and the whole cooldown for a customer with no cadence on file.
+     */
+    @Column(name = "offer_cooldown_days", nullable = false)
+    private int offerCooldownDays = 30;
+
+    /** Multiplier applied to the customer's own cadence for the same purpose. */
+    @Column(name = "offer_cooldown_multiplier", nullable = false, precision = 4, scale = 2)
+    private BigDecimal offerCooldownMultiplier = new BigDecimal("3.00");
+
+    /**
+     * Most offers this business will issue inside one rolling window. Zero
+     * stops the programme entirely; there is no "unlimited".
+     *
+     * <p>Counted in offers rather than currency deliberately — see
+     * {@code V6__offer_budget_ceiling.sql}. Because Phase 1 pins one static deal
+     * per business, {@code cap × defaultDealValue} is the exposure exactly.
+     */
+    @Column(name = "offer_cap_per_window", nullable = false)
+    private int offerCapPerWindow = 100;
+
+    /** Length of that window. Rolling from now, never a calendar reset. */
+    @Column(name = "offer_budget_window_days", nullable = false)
+    private int offerBudgetWindowDays = 30;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "default_deal_type", nullable = false, length = 24)
     private DealType defaultDealType = DealType.PERCENT_OFF;
@@ -81,5 +107,30 @@ public class Business {
         BigDecimal min = BigDecimal.valueOf(minThresholdDays);
         BigDecimal max = BigDecimal.valueOf(maxThresholdDays);
         return raw.max(min).min(max);
+    }
+
+    /**
+     * How long a customer whose cadence is {@code avgIntervalDays} is left alone
+     * after an offer has reached them.
+     *
+     * <p>Relative to their own rhythm, like the flag threshold: a month of
+     * silence is a lapse for a weekly regular and unremarkable for someone who
+     * visits twice a year, so a flat number would leave the first group eligible
+     * constantly and the second locked out for no reason.
+     *
+     * <p>This bounds what one customer can extract by lapsing on purpose. It is
+     * not a bound on what the programme costs in total — that is a separate
+     * ceiling.
+     *
+     * @param avgIntervalDays the customer's learned cadence; null is allowed and
+     *                        falls back to the floor, since a customer with no
+     *                        rhythm has nothing to scale against
+     */
+    public BigDecimal cooldownDaysFor(BigDecimal avgIntervalDays) {
+        BigDecimal floor = BigDecimal.valueOf(offerCooldownDays);
+        if (avgIntervalDays == null) {
+            return floor;
+        }
+        return avgIntervalDays.multiply(offerCooldownMultiplier).max(floor);
     }
 }

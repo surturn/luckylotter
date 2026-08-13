@@ -14,11 +14,21 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByBusinessIdAndExternalRef(UUID businessId, String externalRef);
 
-    /** Customers with enough history to have a cadence — the flaggable population (FR-2). */
-    long countByBusinessIdAndTransactionCountGreaterThanEqual(UUID businessId, int minTransactions);
+    /**
+     * Customers with enough history to have a cadence — the flaggable
+     * population (FR-2).
+     *
+     * <p>Counted on the cadence itself rather than on {@code transaction_count},
+     * because rows over-count visits: a customer whose only trip was rung up
+     * three times has three transactions, no cadence, and cannot be flagged.
+     * Counting rows would report them to the admin as monitored when they are
+     * not. This and {@link #countByBusinessIdAndAvgIntervalDaysIsNull} partition
+     * the business's customers exactly.
+     */
+    long countByBusinessIdAndAvgIntervalDaysIsNotNull(UUID businessId);
 
-    /** Seen, but still below {@code MIN_TRANSACTIONS}: no rhythm yet, so never flagged (FR-2). */
-    long countByBusinessIdAndTransactionCountLessThan(UUID businessId, int minTransactions);
+    /** Seen, but with no rhythm yet, so never flagged (FR-2). */
+    long countByBusinessIdAndAvgIntervalDaysIsNull(UUID businessId);
 
     /**
      * At-risk candidates for one business (FR-3). Returns only customers with an
@@ -31,6 +41,11 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
      * i.e. now minus {@code min_threshold_days} — so the scan stays on the
      * {@code (business_id, last_visit_at)} index rather than loading every
      * customer (NFR-5).
+     *
+     * <p>{@code minTransactions} is likewise coarse, and deliberately kept even
+     * though {@code avgIntervalDays IS NOT NULL} is the real gate: visits can
+     * never outnumber rows, so it narrows the scan without ever excluding a
+     * genuine candidate.
      */
     @Query("""
         SELECT c FROM Customer c

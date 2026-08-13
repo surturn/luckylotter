@@ -27,9 +27,11 @@ import java.util.UUID;
  * {@link OfferStatus#NO_CONTACT}.
  *
  * <p>{@link #avgIntervalDays} is denormalized cadence state recomputed on each
- * ingested transaction (FR-2). It stays null until {@link #transactionCount}
- * reaches {@link RetentionConstants#MIN_TRANSACTIONS} — a null cadence means
- * not flaggable.
+ * ingested transaction (FR-2). It stays null until the customer has
+ * {@link RetentionConstants#MIN_TRANSACTIONS} <em>visits</em> — a null cadence
+ * means not flaggable. {@link #transactionCount} counts rows, which can exceed
+ * the visit count when one trip is rung up several times, so it is not on its
+ * own evidence of a rhythm.
  */
 @Entity
 @Table(name = "customers")
@@ -95,9 +97,16 @@ public class Customer {
         this.updatedAt = Instant.now();
     }
 
-    /** True once there is enough history for the cadence to mean something. */
+    /**
+     * True once there is enough history for the cadence to mean something.
+     *
+     * <p>The cadence being non-null is the whole condition: it is only computed
+     * once the customer has {@link RetentionConstants#MIN_TRANSACTIONS} distinct
+     * visits. The row count is deliberately not consulted — it over-counts a
+     * split bill, which is exactly the case this must not admit.
+     */
     public boolean hasEstablishedCadence() {
-        return transactionCount >= RetentionConstants.MIN_TRANSACTIONS && avgIntervalDays != null;
+        return avgIntervalDays != null;
     }
 
     /**

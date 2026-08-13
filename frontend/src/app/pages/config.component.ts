@@ -88,6 +88,62 @@ import { ToastService } from '../shared/toast.service';
         </section>
 
         <section class="card block">
+          <h2>How often the same person can get one</h2>
+          <p class="hint" style="margin-bottom:var(--space-4)">
+            After an offer reaches someone, they're left alone for a while before they can be
+            flagged again. Without this, going quiet becomes a way to earn discounts, and your
+            regulars learn to space their visits out.
+          </p>
+
+          <div class="row">
+            <div class="field">
+              <label for="cooldownDays">Leave them alone for at least</label>
+              <input id="cooldownDays" type="number" min="0" max="365"
+                     formControlName="offerCooldownDays" />
+              <p class="hint">days</p>
+            </div>
+            <div class="field">
+              <label for="cooldownMultiplier">Or this many times their usual gap</label>
+              <input id="cooldownMultiplier" type="number" min="0" max="20" step="0.5"
+                     formControlName="offerCooldownMultiplier" />
+              <p class="hint">whichever is longer</p>
+            </div>
+          </div>
+
+          <p class="hint">
+            <strong>{{ cooldownExample() }}</strong>
+          </p>
+        </section>
+
+        <section class="card block">
+          <h2>How many you'll send in total</h2>
+          <p class="hint" style="margin-bottom:var(--space-4)">
+            A ceiling on the whole programme, so it can't cost more than you planned. Customers
+            past the ceiling are still flagged and still shown to you — you'll see exactly who you
+            didn't reach, marked "Budget reached".
+          </p>
+
+          <div class="row">
+            <div class="field">
+              <label for="cap">At most</label>
+              <input id="cap" type="number" min="0" max="1000000"
+                     formControlName="offerCapPerWindow" />
+              <p class="hint">offers</p>
+            </div>
+            <div class="field">
+              <label for="window">In any</label>
+              <input id="window" type="number" min="1" max="365"
+                     formControlName="offerBudgetWindowDays" />
+              <p class="hint">days, counted rolling — not reset on the 1st</p>
+            </div>
+          </div>
+
+          <p class="hint">
+            <strong>{{ budgetExample() }}</strong>
+          </p>
+        </section>
+
+        <section class="card block">
           <h2>What to offer them</h2>
           <p class="hint" style="margin-bottom:var(--space-4)">
             Applied to every offer generated from now on. Offers already sent keep the deal they were
@@ -150,6 +206,10 @@ export class ConfigComponent {
     sensitivityMultiplier: [1.5, Validators.required],
     minThresholdDays: [3, [Validators.required, Validators.min(1), Validators.max(365)]],
     maxThresholdDays: [60, [Validators.required, Validators.min(1), Validators.max(365)]],
+    offerCooldownDays: [30, [Validators.required, Validators.min(0), Validators.max(365)]],
+    offerCooldownMultiplier: [3, [Validators.required, Validators.min(0), Validators.max(20)]],
+    offerCapPerWindow: [100, [Validators.required, Validators.min(0), Validators.max(1000000)]],
+    offerBudgetWindowDays: [30, [Validators.required, Validators.min(1), Validators.max(365)]],
     defaultDealType: ['PERCENT_OFF' as BusinessConfig['defaultDealType'], Validators.required],
     defaultDealValue: [25, [Validators.required, Validators.min(0.01)]],
   });
@@ -193,6 +253,56 @@ export class ConfigComponent {
     return `${base}.`;
   }
 
+  /**
+   * The cooldown worked through the same 7-day customer as {@link example}, so
+   * the two numbers on this screen can be read against each other. Says which
+   * of the two inputs won, for the same reason the threshold example does: a
+   * field that appears to do nothing reads as broken.
+   */
+  cooldownExample(): string {
+    const { offerCooldownDays, offerCooldownMultiplier } = this.form.getRawValue();
+    const typicalGap = 7;
+    const floor = Number(offerCooldownDays);
+    const scaled = typicalGap * Number(offerCooldownMultiplier);
+    const applied = Math.max(floor, scaled);
+
+    if (applied === 0) {
+      return 'That same customer can be flagged again immediately — there is no cooldown at all.';
+    }
+    const base = `That same customer can't get another offer for ${applied.toFixed(0)} days`;
+    if (scaled > floor) {
+      return `${base} — ${offerCooldownMultiplier}× their usual 7-day gap, which is longer than your ${floor}-day minimum.`;
+    }
+    return `${base} — your ${floor}-day minimum, since ${offerCooldownMultiplier}× their usual gap would only be ${scaled.toFixed(0)}.`;
+  }
+
+  /**
+   * The ceiling stated as money where that is actually knowable.
+   *
+   * <p>Only for `FIXED_AMOUNT_OFF`: because Phase 1 pins one static deal per
+   * business, every offer carries the same value, so cap × value is the real
+   * exposure rather than an estimate. A percentage needs the basket it applies
+   * to and a free item needs its cost, and neither is recorded — so those say
+   * nothing rather than guess. Nothing here counts redemption, which isn't
+   * tracked yet; this is the most it can cost, not what it will cost.
+   */
+  budgetExample(): string {
+    const { offerCapPerWindow, offerBudgetWindowDays, defaultDealType, defaultDealValue } =
+      this.form.getRawValue();
+    const cap = Number(offerCapPerWindow);
+    const days = Number(offerBudgetWindowDays);
+
+    if (cap === 0) {
+      return 'No offers will be sent at all — every flagged customer will be marked "Budget reached".';
+    }
+    const base = `At most ${cap} offers in any ${days} days`;
+    if (defaultDealType === 'FIXED_AMOUNT_OFF') {
+      const exposure = cap * Number(defaultDealValue);
+      return `${base} — up to ${exposure.toLocaleString()} in discounts if every one of them is claimed.`;
+    }
+    return `${base}.`;
+  }
+
   valueLabel(): string {
     switch (this.form.getRawValue().defaultDealType) {
       case 'PERCENT_OFF':
@@ -227,6 +337,10 @@ export class ConfigComponent {
       sensitivityMultiplier: Number(value.sensitivityMultiplier),
       minThresholdDays: Number(value.minThresholdDays),
       maxThresholdDays: Number(value.maxThresholdDays),
+      offerCooldownDays: Number(value.offerCooldownDays),
+      offerCooldownMultiplier: Number(value.offerCooldownMultiplier),
+      offerCapPerWindow: Number(value.offerCapPerWindow),
+      offerBudgetWindowDays: Number(value.offerBudgetWindowDays),
       defaultDealType: value.defaultDealType,
       defaultDealValue: Number(value.defaultDealValue),
     }).subscribe({

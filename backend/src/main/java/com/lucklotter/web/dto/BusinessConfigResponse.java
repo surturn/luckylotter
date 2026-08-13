@@ -16,6 +16,10 @@ public record BusinessConfigResponse(
     BigDecimal sensitivityMultiplier,
     int minThresholdDays,
     int maxThresholdDays,
+    int offerCooldownDays,
+    BigDecimal offerCooldownMultiplier,
+    int offerCapPerWindow,
+    int offerBudgetWindowDays,
     DealType defaultDealType,
     BigDecimal defaultDealValue,
     int minTransactions

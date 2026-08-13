@@ -127,11 +127,19 @@ public class FlagQueryService {
     /**
      * Newest {@link RetentionConstants#VISIT_HISTORY_LIMIT} visits, returned
      * oldest first — the order a chart draws them in.
+     *
+     * <p>Collapsed into visits by {@link CadenceCalculator#distinctVisits} first,
+     * for the same reason the cadence is: a split bill is one trip, and drawing
+     * it as three points would show the admin a rhythm the customer does not
+     * have — on the same screen as a cadence figure that counted it once.
+     * Collapsing before the limit matters, or twelve rows from one busy
+     * afternoon would fill a chart meant to span months.
      */
-    private static List<VisitPoint> trimmedVisits(List<Instant> newestFirst) {
-        return newestFirst.stream()
-                .limit(RetentionConstants.VISIT_HISTORY_LIMIT)
-                .sorted()
+    private static List<VisitPoint> trimmedVisits(List<Instant> transactionTimestamps) {
+        List<Instant> visits = CadenceCalculator.distinctVisits(transactionTimestamps);
+        return visits.subList(Math.max(0, visits.size() - RetentionConstants.VISIT_HISTORY_LIMIT),
+                        visits.size())
+                .stream()
                 .map(VisitPoint::new)
                 .toList();
     }

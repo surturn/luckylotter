@@ -9,8 +9,13 @@
 
 export type FlagStatus = 'ACTIVE' | 'RESOLVED';
 
-/** `NO_CONTACT` is terminal — the customer has no email and no phone (FR-5). */
-export type OfferStatus = 'PENDING' | 'SENT' | 'FAILED' | 'NO_CONTACT';
+/**
+ * `NO_CONTACT` is terminal — the customer has no email and no phone (FR-5).
+ * `SUPPRESSED_BUDGET` is terminal too: the customer was flagged, but the
+ * business's offer cap for the window was already spent, so nothing was sent
+ * (FR-4).
+ */
+export type OfferStatus = 'PENDING' | 'SENT' | 'FAILED' | 'NO_CONTACT' | 'SUPPRESSED_BUDGET';
 
 export type DealType = 'PERCENT_OFF' | 'FIXED_AMOUNT_OFF' | 'FREE_ITEM';
 
@@ -39,6 +44,10 @@ export interface BusinessConfig {
   sensitivityMultiplier: number;
   minThresholdDays: number;
   maxThresholdDays: number;
+  offerCooldownDays: number;
+  offerCooldownMultiplier: number;
+  offerCapPerWindow: number;
+  offerBudgetWindowDays: number;
   defaultDealType: DealType;
   defaultDealValue: number;
   /** Read-only: a fixed system constant, not per-business config (FR-2). */
@@ -49,6 +58,10 @@ export interface BusinessConfigUpdate {
   sensitivityMultiplier: number;
   minThresholdDays: number;
   maxThresholdDays: number;
+  offerCooldownDays: number;
+  offerCooldownMultiplier: number;
+  offerCapPerWindow: number;
+  offerBudgetWindowDays: number;
   defaultDealType: DealType;
   defaultDealValue: number;
 }

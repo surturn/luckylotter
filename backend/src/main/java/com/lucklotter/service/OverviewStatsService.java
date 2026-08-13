@@ -2,7 +2,6 @@ package com.lucklotter.service;
 
 import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.OfferStatus;
-import com.lucklotter.domain.RetentionConstants;
 import com.lucklotter.repo.CustomerRepository;
 import com.lucklotter.repo.OfferRepository;
 import com.lucklotter.repo.RetentionFlagRepository;
@@ -47,10 +46,8 @@ public class OverviewStatsService {
 
     @Transactional(readOnly = true)
     public OverviewStatsResponse forBusiness(UUID businessId) {
-        long monitored = customers.countByBusinessIdAndTransactionCountGreaterThanEqual(
-                businessId, RetentionConstants.MIN_TRANSACTIONS);
-        long belowThreshold = customers.countByBusinessIdAndTransactionCountLessThan(
-                businessId, RetentionConstants.MIN_TRANSACTIONS);
+        long monitored = customers.countByBusinessIdAndAvgIntervalDaysIsNotNull(businessId);
+        long belowThreshold = customers.countByBusinessIdAndAvgIntervalDaysIsNull(businessId);
 
         long active = flags.countByBusinessIdAndStatus(businessId, FlagStatus.ACTIVE);
         long resolved = flags.countByBusinessIdAndStatus(businessId, FlagStatus.RESOLVED);

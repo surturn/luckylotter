@@ -46,12 +46,19 @@ public class BusinessConfigService {
         business.setSensitivityMultiplier(request.sensitivityMultiplier());
         business.setMinThresholdDays(request.minThresholdDays());
         business.setMaxThresholdDays(request.maxThresholdDays());
+        business.setOfferCooldownDays(request.offerCooldownDays());
+        business.setOfferCooldownMultiplier(request.offerCooldownMultiplier());
+        business.setOfferCapPerWindow(request.offerCapPerWindow());
+        business.setOfferBudgetWindowDays(request.offerBudgetWindowDays());
         business.setDefaultDealType(request.defaultDealType());
         business.setDefaultDealValue(request.defaultDealValue());
 
-        log.info("Business config updated: businessId={} multiplier={} clamp=[{},{}] deal={}/{}",
+        log.info("Business config updated: businessId={} multiplier={} clamp=[{},{}] "
+                        + "cooldown={}d/{}x deal={}/{}",
                 businessId, request.sensitivityMultiplier(), request.minThresholdDays(),
-                request.maxThresholdDays(), request.defaultDealType(), request.defaultDealValue());
+                request.maxThresholdDays(), request.offerCooldownDays(),
+                request.offerCooldownMultiplier(),
+                request.defaultDealType(), request.defaultDealValue());
         return toResponse(business);
     }
 
@@ -66,6 +73,10 @@ public class BusinessConfigService {
                 business.getSensitivityMultiplier(),
                 business.getMinThresholdDays(),
                 business.getMaxThresholdDays(),
+                business.getOfferCooldownDays(),
+                business.getOfferCooldownMultiplier(),
+                business.getOfferCapPerWindow(),
+                business.getOfferBudgetWindowDays(),
                 business.getDefaultDealType(),
                 business.getDefaultDealValue(),
                 RetentionConstants.MIN_TRANSACTIONS);

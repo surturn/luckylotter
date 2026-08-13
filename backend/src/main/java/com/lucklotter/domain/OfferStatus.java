@@ -15,5 +15,19 @@ public enum OfferStatus {
     /** A send was attempted and threw. Retriable. */
     FAILED,
     /** Terminal: the customer has neither contact_email nor contact_phone. */
-    NO_CONTACT
+    NO_CONTACT,
+    /**
+     * Terminal: the business's offer cap for the current window was already
+     * spent when this offer was generated (FR-4).
+     *
+     * <p>The flag is still created and the customer still appears on the
+     * dashboard. Skipping the flag would tell the admin their retention is
+     * healthy when what actually ran out was their budget, and the count of
+     * offers in this state is the evidence for raising the cap.
+     *
+     * <p>Never retried: the window it was refused in has passed by the time
+     * anything would look again, and quietly sending a month-old win-back is
+     * worse than not sending it.
+     */
+    SUPPRESSED_BUDGET
 }
