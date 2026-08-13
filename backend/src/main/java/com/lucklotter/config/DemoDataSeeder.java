@@ -175,9 +175,11 @@ public class DemoDataSeeder implements CommandLineRunner {
         int transactionCount = seedCurrentCustomers(business, now);
         transactionCount += seedHistory(business, now);
 
-        log.info("Seeded demo data: businessId={} customers={} transactions={} historicalFlags={} adminEmail={}",
+        // The admin's ID, not their address: the seed email comes from config and
+        // in a non-demo deploy that is a real operator's inbox (NFR-4).
+        log.info("Seeded demo data: businessId={} customers={} transactions={} historicalFlags={} adminUserId={}",
                 business.getId(), PROFILES.length + HISTORY.length, transactionCount,
-                HISTORY.length, adminEmail);
+                HISTORY.length, admin.getId());
     }
 
     /** Customers whose current state the next scan will act on. */

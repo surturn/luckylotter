@@ -1,5 +1,6 @@
 package com.lucklotter.service;
 
+import com.lucklotter.support.Redact;
 import com.lucklotter.web.dto.ImportPreviewResponse;
 import com.lucklotter.web.dto.ImportResultResponse;
 import com.lucklotter.web.dto.ImportResultResponse.RowError;
@@ -266,7 +267,9 @@ public class CsvImportService {
         if (e instanceof ValidationException || e instanceof NotFoundException) {
             return e.getMessage();
         }
-        log.warn("Unexpected error importing a CSV row", e);
+        // Scrubbed: a parse or mapping failure quotes the row it choked on, and
+        // a POS row is the richest contact data in the system (NFR-4).
+        log.warn("Unexpected error importing a CSV row: cause={}", Redact.scrubStackTrace(e));
         return "Could not be imported";
     }
 

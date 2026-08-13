@@ -195,6 +195,13 @@ existed.
 - [ ] The rebuild loads a business's whole customer list unpaged. Correct at pilot scale — it has to see everyone or it leaves some on a stale cadence — but it needs to stream before any business outgrows a single page (NFR-5)
 - [ ] Performance test: cadence recompute across 10,000 customers stays inside the batch window with no seq scans — verify via `EXPLAIN` (NFR-5)
 
+### M4 gate: no PII in logs (NFR-4) — ✅ audited 2026-08-13
+- [x] Audited all 27 log statements. The ones this project writes itself were already clean — IDs and codes only. The exposure was **text the application didn't write**: an SMTP rejection quoting the recipient, a CSV parse error quoting the row, a Jackson error quoting the request payload, a Postgres violation quoting the offending key. Five sites logged that verbatim: `OfferSendService` ×2, `CsvImportService`, `ApiExceptionHandler` ×2 (NFR-4)
+- [x] **Decided: redact, then log.** `Redact.scrub` masks emails and phone numbers before third-party text reaches an appender; `Redact.scrubStackTrace` renders and scrubs a throwable rather than handing it to the logger, which would print its message verbatim above the frames. Chosen over dropping the detail because the provider's diagnosis — "mailbox full", "relay denied" — is what makes a failed delivery fixable, and over a separate restricted log because that needs a second appender, retention policy and access control that don't exist yet. Same reasoning as `offers.failure_code`, applied to the log stream instead of a column (NFR-4)
+- [x] Biased toward over-redaction on purpose, but the bias has a limit worth knowing: counting *characters* rather than digits, the pattern ate the SMTP status code `550 5.1.1`, destroying the most useful part of the message. It now requires seven actual digits, with `RedactTest` pinning both directions — identifiers and status codes survive, contact details don't (NFR-4)
+- [x] `DemoDataSeeder` logged the seeded `adminEmail`; it now logs `adminUserId`. The address comes from config, and in a non-demo deploy that is a real operator's inbox (NFR-4)
+- [ ] The scrubber is a strong reduction, not a guarantee — no pattern recognises every shape an identifier takes. It does not make logging arbitrary third-party text safe by design, so new call sites still need the same judgement (NFR-4)
+
 ### M1-3: Flag auto-resolution
 - [x] On ingestion, flip that customer's `ACTIVE` flag to `RESOLVED` with `resolved_at` set (FR-9)
 - [ ] Test: ingesting a transaction for a flagged customer resolves exactly that one flag (FR-9)

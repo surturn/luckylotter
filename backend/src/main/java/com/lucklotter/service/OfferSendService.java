@@ -5,6 +5,7 @@ import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferFailureCode;
 import com.lucklotter.domain.OfferStatus;
 import com.lucklotter.repo.OfferRepository;
+import com.lucklotter.support.Redact;
 import com.lucklotter.service.notify.NotificationException;
 import com.lucklotter.service.notify.NotificationSender;
 import org.slf4j.Logger;
@@ -67,17 +68,19 @@ public class OfferSendService {
             log.info("Offer sent: offerId={} customerId={}", offerId, customer.getId());
             return true;
         } catch (NotificationException e) {
-            // The code is stored; the provider's message — which may quote an
-            // email address or phone number back at us — goes only to the log,
-            // correlated by offer ID (NFR-4).
+            // The code is stored; the provider's diagnosis goes only to the log,
+            // correlated by offer ID. It is scrubbed first — an SMTP rejection
+            // routinely quotes the recipient back at us (NFR-4).
             offer.markFailed(e.getCode());
             log.warn("Offer delivery failed: offerId={} customerId={} code={} detail={}",
-                    offerId, customer.getId(), e.getCode(), e.getMessage());
+                    offerId, customer.getId(), e.getCode(), Redact.scrub(e.getMessage()));
             return false;
         } catch (RuntimeException e) {
             offer.markFailed(OfferFailureCode.UNKNOWN_ERROR);
-            log.error("Offer delivery threw an unmapped error: offerId={} customerId={}",
-                    offerId, customer.getId(), e);
+            // Rendered and scrubbed rather than handed to the logger, which
+            // would print the message verbatim above the frames (NFR-4).
+            log.error("Offer delivery threw an unmapped error: offerId={} customerId={} cause={}",
+                    offerId, customer.getId(), Redact.scrubStackTrace(e));
             return false;
         }
     }

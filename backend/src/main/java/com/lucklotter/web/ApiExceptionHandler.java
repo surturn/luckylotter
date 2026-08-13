@@ -1,6 +1,7 @@
 package com.lucklotter.web;
 
 import com.lucklotter.service.NotFoundException;
+import com.lucklotter.support.Redact;
 import com.lucklotter.service.ValidationException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -82,7 +83,9 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> onConflict(DataIntegrityViolationException e) {
-        log.warn("Constraint violation on write", e);
+        // Postgres quotes the offending key in the violation message, and that
+        // key can be a customer's external reference (NFR-4).
+        log.warn("Constraint violation on write: cause={}", Redact.scrubStackTrace(e));
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(body(HttpStatus.CONFLICT, "Conflicts with an existing record"));
     }
@@ -90,8 +93,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> onUnexpected(Exception e) {
         // Detail goes to the log, correlated by request ID; the caller gets none
-        // of it, since stack traces and driver messages leak internals.
-        log.error("Unhandled exception", e);
+        // of it, since stack traces and driver messages leak internals. Scrubbed
+        // on the way in: a malformed-payload error quotes the payload, and an
+        // ingest payload carries contact details (NFR-4).
+        log.error("Unhandled exception: cause={}", Redact.scrubStackTrace(e));
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(body(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error"));
     }
