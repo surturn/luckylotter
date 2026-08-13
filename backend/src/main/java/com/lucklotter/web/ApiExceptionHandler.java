@@ -15,6 +15,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -88,6 +89,20 @@ public class ApiExceptionHandler {
         log.warn("Constraint violation on write: cause={}", Redact.scrubStackTrace(e));
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(body(HttpStatus.CONFLICT, "Conflicts with an existing record"));
+    }
+
+    /**
+     * A URL that matches no route. Spring raises this from the static-resource
+     * handler, so without an explicit case it falls through to the catch-all
+     * below and a mistyped path answers 500 — telling the caller the server
+     * broke when the request was simply wrong, and putting routine 404s into
+     * the error log where a real fault becomes harder to see.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> onNoRoute(NoResourceFoundException e) {
+        log.debug("No route for request: path={}", e.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(body(HttpStatus.NOT_FOUND, "No such endpoint"));
     }
 
     @ExceptionHandler(Exception.class)
