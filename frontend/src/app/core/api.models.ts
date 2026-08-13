@@ -70,6 +70,8 @@ export interface FlagSummary {
   flagId: string;
   customerId: string;
   customerRef: string;
+  /** Null when the POS export carried no name for this customer. */
+  customerName: string | null;
   status: FlagStatus;
   lastVisitAt: string | null;
   flaggedAt: string;
@@ -143,6 +145,54 @@ export interface OverviewStats {
   recoveryRate: RecoveryRate;
   /** Always 8 entries, oldest first, including weeks with no activity. */
   weeklySeries: WeeklyPoint[];
+  comparison: PeriodComparison;
+  statusBreakdown: StatusBreakdown;
+  /** Empty when nobody is currently quiet. */
+  overdueBuckets: OverdueBucket[];
+}
+
+/**
+ * This 8-week period against the previous one.
+ *
+ * Only covers things that happened at a point in time. There is deliberately no
+ * comparison for `customersMonitored` or `activeFlags`: those describe how
+ * things stand now, and nothing records how they stood eight weeks ago, so a
+ * trend arrow beside them would be invented rather than measured.
+ *
+ * A null change means the previous period had nothing to compare against —
+ * render it as "no earlier data", never as 0% or +100%.
+ */
+export interface PeriodComparison {
+  flagsRaisedNow: number;
+  flagsRaisedBefore: number;
+  flagsRaisedChangePercent: number | null;
+  recoveredNow: number;
+  recoveredBefore: number;
+  recoveredChangePercent: number | null;
+  offersSentNow: number;
+  offersSentBefore: number;
+  offersSentChangePercent: number | null;
+  recoveryPercentNow: number | null;
+  recoveryPercentBefore: number | null;
+  recoveryPercentChange: number | null;
+}
+
+export interface StatusBreakdown {
+  cameBack: number;
+  stillQuiet: number;
+  notEnoughData: number;
+}
+
+/**
+ * Severity spread of the currently-quiet customers.
+ *
+ * Not "reasons for being flagged" — there is exactly one trigger, a break in
+ * the customer's own rhythm, so the honest breakdown is how far past their own
+ * threshold each one is, expressed as a multiple of it.
+ */
+export interface OverdueBucket {
+  bucket: 'JUST_PAST' | 'WELL_PAST' | 'LONG_OVERDUE';
+  customers: number;
 }
 
 export interface VisitPoint {

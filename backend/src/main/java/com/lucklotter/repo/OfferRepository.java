@@ -21,6 +21,18 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
     long countByBusinessIdAndStatus(UUID businessId, OfferStatus status);
 
     /**
+     * Offers actually delivered inside a window, for the period-over-period
+     * comparison (FR-7). Counted on {@code sentAt}, not {@code createdAt}: the
+     * card says "offers sent", so an offer that was generated in one period and
+     * delivered in the next belongs to the period it reached someone in.
+     *
+     * <p>Half-open {@code [from, to)} so a delivery on the boundary is not
+     * counted in both periods.
+     */
+    long countByBusinessIdAndSentAtGreaterThanEqualAndSentAtLessThan(
+            UUID businessId, Instant from, Instant to);
+
+    /**
      * When an offer last actually reached this customer — the instant the
      * cooldown is measured from (FR-4).
      *

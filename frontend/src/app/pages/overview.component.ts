@@ -63,6 +63,13 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
               {{ data.recoveryRate.recovered | number }} of
               {{ data.recoveryRate.totalFlags | number }}
               flagged {{ data.recoveryRate.totalFlags === 1 ? 'customer' : 'customers' }} visited again.
+              @if (data.comparison.recoveryPercentChange !== null) {
+                <span class="hero-delta">
+                  {{ data.comparison.recoveryPercentChange! > 0 ? '↑' : '↓' }}
+                  {{ abs(data.comparison.recoveryPercentChange!) | number: '1.0-1' }}
+                  points vs the previous 8 weeks.
+                </span>
+              }
             </span>
           }
         </div>
@@ -86,6 +93,17 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
         <div class="card stat">
           <span class="label">Offers sent</span>
           <span class="value">{{ data.offersSent | number }}</span>
+          <!-- The only stat card with a trend line. "Monitored" and "currently
+               quiet" are counts of how things stand right now; nothing records
+               how they stood eight weeks ago, so an arrow beside them would be
+               reconstructed rather than measured. -->
+          @if (data.comparison.offersSentChangePercent !== null) {
+            <span class="delta" [class.down]="data.comparison.offersSentChangePercent! < 0">
+              {{ data.comparison.offersSentChangePercent! > 0 ? '↑' : '↓' }}
+              {{ abs(data.comparison.offersSentChangePercent!) | number: '1.0-0' }}%
+              <span class="delta-note">vs previous 8 weeks</span>
+            </span>
+          }
           <span class="sub">
             @if (data.offersNoContact > 0) {
               {{ data.offersNoContact | number }} more are waiting on contact details.
@@ -94,6 +112,51 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
             }
           </span>
         </div>
+      </div>
+
+      <div class="panels">
+        <section class="card panel">
+          <h2>Customer status breakdown</h2>
+          <div class="donut-row">
+            <!-- conic-gradient rather than a chart library: three static slices
+                 don't justify the payload, and the same numbers are listed
+                 beside it so the colour is never the only carrier. -->
+            <div class="donut" [style.background]="donut(data)" role="img"
+                 [attr.aria-label]="donutLabel(data)"></div>
+            <ul class="legend">
+              <li><span class="swatch came-back"></span>
+                Came back <strong>{{ data.statusBreakdown.cameBack | number }}</strong></li>
+              <li><span class="swatch quiet"></span>
+                Still quiet <strong>{{ data.statusBreakdown.stillQuiet | number }}</strong></li>
+              <li><span class="swatch new"></span>
+                Not enough data <strong>{{ data.statusBreakdown.notEnoughData | number }}</strong></li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="card panel">
+          <h2>How far past their rhythm</h2>
+          <p class="muted small" style="margin:4px 0 var(--space-4)">
+            There's one reason a customer is flagged — they broke their own visit rhythm.
+            This is how far past it they are, measured against their own threshold.
+          </p>
+          @if (data.overdueBuckets.length === 0) {
+            <p class="muted small">Nobody is quiet right now.</p>
+          } @else {
+            <ul class="bars">
+              @for (bucket of orderedBuckets(data); track bucket.bucket) {
+                <li>
+                  <span class="bar-label">{{ bucketLabel(bucket.bucket) }}</span>
+                  <span class="bar-track">
+                    <span class="bar-fill" [class]="bucket.bucket"
+                          [style.width.%]="barWidth(bucket.customers, data)"></span>
+                  </span>
+                  <span class="bar-value">{{ bucket.customers | number }}</span>
+                </li>
+              }
+            </ul>
+          }
+        </section>
       </div>
 
       <section class="card chart-card">
@@ -182,6 +245,82 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
         grid-template-areas: 'label' 'value' 'sub';
       }
     }
+
+    .delta {
+      display: inline-flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--success-600);
+    }
+    /* A fall in offers sent is not automatically bad — fewer people going quiet
+       is the goal — so this is a neutral slate rather than an alarm red. */
+    .delta.down { color: var(--text-muted); }
+    .delta-note { font-weight: 400; color: var(--text-subtle); }
+    .hero-delta { display: block; margin-top: var(--space-1); }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-5);
+    }
+    .panel { padding: var(--space-5); }
+    .panel h2 { font-size: var(--text-lg); margin: 0; }
+
+    .donut-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-5);
+      margin-top: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .donut {
+      flex: none;
+      width: 132px;
+      height: 132px;
+      border-radius: 50%;
+      /* Ring, not pie: the hole keeps the eye on relative arc length rather
+         than inviting area comparison, which people read badly. */
+      mask: radial-gradient(circle, transparent 58%, #000 59%);
+      -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%);
+    }
+    .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+    .legend li {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+    .legend strong { color: var(--text); font-variant-numeric: tabular-nums; }
+    .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+    .swatch.came-back { background: var(--primary-500); }
+    .swatch.quiet { background: #e3a008; }
+    .swatch.new { background: var(--neutral-200); }
+
+    .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+    .bars li {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-3);
+      font-size: var(--text-sm);
+    }
+    .bar-label { color: var(--text-muted); }
+    .bar-track { background: var(--surface-sunken); border-radius: var(--radius-full); height: 8px; }
+    .bar-fill { display: block; height: 100%; border-radius: var(--radius-full); }
+    /* Severity reads as a ramp, so the three bars are comparable at a glance. */
+    .bar-fill.JUST_PAST { background: var(--primary-100); }
+    .bar-fill.WELL_PAST { background: var(--primary-500); }
+    .bar-fill.LONG_OVERDUE { background: var(--primary-700); }
+    .bar-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    @media (max-width: 560px) {
+      .bars li { grid-template-columns: 1fr auto; }
+      .bar-track { grid-column: 1 / -1; }
+    }
   `],
 })
 export class OverviewComponent {
@@ -208,5 +347,58 @@ export class OverviewComponent {
         this.error.set('Could not load your figures.');
       },
     });
+  }
+
+  /** Direction is carried by the arrow; the number itself reads unsigned. */
+  abs(value: number): number {
+    return Math.abs(value);
+  }
+
+  /**
+   * Slices in the same order as the legend. Percentages are derived here rather
+   * than sent by the API because they are pure presentation — the counts are
+   * the fact, and three counts that must sum to the total are better checked in
+   * one place than trusted from two.
+   */
+  donut(data: OverviewStats): string {
+    const { cameBack, stillQuiet, notEnoughData } = data.statusBreakdown;
+    const total = cameBack + stillQuiet + notEnoughData;
+    if (total === 0) {
+      return 'var(--neutral-200)';
+    }
+    const first = (cameBack / total) * 100;
+    const second = first + (stillQuiet / total) * 100;
+    return `conic-gradient(var(--primary-500) 0 ${first}%, `
+      + `#e3a008 ${first}% ${second}%, var(--neutral-200) ${second}% 100%)`;
+  }
+
+  donutLabel(data: OverviewStats): string {
+    const { cameBack, stillQuiet, notEnoughData } = data.statusBreakdown;
+    return `${cameBack} came back, ${stillQuiet} still quiet, `
+      + `${notEnoughData} without enough data to judge.`;
+  }
+
+  /** Severity order, so the list reads worst-last regardless of row order. */
+  orderedBuckets(data: OverviewStats) {
+    const order = ['JUST_PAST', 'WELL_PAST', 'LONG_OVERDUE'];
+    return [...data.overdueBuckets].sort(
+      (a, b) => order.indexOf(a.bucket) - order.indexOf(b.bucket));
+  }
+
+  bucketLabel(bucket: string): string {
+    switch (bucket) {
+      case 'JUST_PAST': return 'Just past their gap';
+      case 'WELL_PAST': return 'Well past it';
+      default: return 'Long overdue';
+    }
+  }
+
+  /**
+   * Scaled against the largest bucket, not the total: with one dominant bucket
+   * every other bar would round to a sliver and stop being comparable.
+   */
+  barWidth(customers: number, data: OverviewStats): number {
+    const largest = Math.max(...data.overdueBuckets.map((b) => b.customers), 1);
+    return Math.max((customers / largest) * 100, 4);
   }
 }

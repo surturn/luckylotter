@@ -73,6 +73,49 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
     List<WeeklyCount> countFlagsRaisedByWeek(@Param("businessId") UUID businessId,
                                              @Param("from") Instant from);
 
+    /**
+     * Flags raised inside a window — the current or the preceding period, for
+     * the overview's period-over-period comparison (FR-7).
+     *
+     * <p>Half-open on purpose: {@code [from, to)}. A closed upper bound would
+     * count a flag raised exactly on the boundary in both periods and overstate
+     * both sides of the comparison.
+     */
+    long countByBusinessIdAndFlaggedAtGreaterThanEqualAndFlaggedAtLessThan(
+            UUID businessId, Instant from, Instant to);
+
+    /** Customers who came back inside a window, by the moment they returned (FR-9). */
+    long countByBusinessIdAndResolvedAtGreaterThanEqualAndResolvedAtLessThan(
+            UUID businessId, Instant from, Instant to);
+
+    /**
+     * How far past their own threshold the currently-quiet customers are.
+     *
+     * <p>The one honest breakdown of "why these customers are flagged": there is
+     * a single trigger, so the interesting variation is severity, not category.
+     * Expressed as a multiple of each customer's own threshold rather than in
+     * days, since ten quiet days means something different to a weekly regular
+     * and a quarterly one.
+     */
+    @Query(value = """
+        SELECT CASE
+                 WHEN quiet_days < threshold_days_applied * 1.5 THEN 'JUST_PAST'
+                 WHEN quiet_days < threshold_days_applied * 3   THEN 'WELL_PAST'
+                 ELSE 'LONG_OVERDUE'
+               END AS "bucket",
+               COUNT(*) AS "total"
+        FROM (
+            SELECT f.threshold_days_applied,
+                   EXTRACT(EPOCH FROM (now() - c.last_visit_at)) / 86400 AS quiet_days
+            FROM retention_flags f
+            JOIN customers c ON c.id = f.customer_id
+            WHERE f.business_id = :businessId
+              AND f.status = 'ACTIVE'
+        ) AS quiet
+        GROUP BY 1
+        """, nativeQuery = true)
+    List<BucketCount> countActiveFlagsByOverdueBucket(@Param("businessId") UUID businessId);
+
     /** As {@link #countFlagsRaisedByWeek}, but by the week the customer returned (FR-9). */
     @Query(value = """
         SELECT date_trunc('week', resolved_at AT TIME ZONE 'UTC') AS "weekStart",

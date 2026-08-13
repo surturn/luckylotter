@@ -161,6 +161,7 @@ public class FlagQueryService {
                 flag.getId(),
                 customer.getId(),
                 customer.getExternalRef(),
+                customer.getName(),
                 flag.getStatus(),
                 customer.getLastVisitAt(),
                 flag.getFlaggedAt(),

@@ -115,7 +115,20 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
               <tbody>
                 @for (flag of data.items; track flag.flagId) {
                   <tr>
-                    <td class="mono">{{ flag.customerRef }}</td>
+                    <td>
+                      <span class="customer">
+                        <!-- Initial from the name when there is one, else from
+                             the till reference, so the column never has a hole
+                             where a customer the POS didn't name should be. -->
+                        <span class="avatar" aria-hidden="true">{{ initialFor(flag) }}</span>
+                        <span class="who">
+                          <span class="mono ref">{{ flag.customerRef }}</span>
+                          @if (flag.customerName) {
+                            <span class="name">{{ flag.customerName }}</span>
+                          }
+                        </span>
+                      </span>
+                    </td>
                     <td class="rhythm">
                       @if (visitsFor(flag.flagId); as history) {
                         <app-visit-sparkline [visits]="history.visits" [flaggedAt]="history.flaggedAt" />
@@ -178,6 +191,32 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
     /* Sticky header: scrolling a long list shouldn't cost you the column
        names. Needs its own background, or rows show through it. */
     .table-scroll { max-height: 65vh; overflow: auto; }
+
+    .customer { display: flex; align-items: center; gap: var(--space-3); }
+    .avatar {
+      flex: none;
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--primary-50);
+      color: var(--primary-600);
+      font-size: var(--text-xs);
+      font-weight: 700;
+    }
+    .who { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+    /* The till reference leads: it is the identifier the admin can search their
+       own POS for, and it is present for every customer. The name sits under it
+       as the human-readable half. */
+    .ref { font-size: var(--text-sm); font-weight: 600; }
+    .name {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     thead th { position: sticky; top: 0; z-index: 1; }
     tbody tr:nth-child(even) { background: var(--neutral-50); }
     tbody tr:hover { background: var(--primary-50); }
@@ -246,6 +285,21 @@ export class FlagsListComponent {
 
   visitsFor(flagId: string): { visits: string[]; flaggedAt: string } | null {
     return this.visits().get(flagId) ?? null;
+  }
+
+  /**
+   * Falls back to the till reference when the POS gave no name, so every row
+   * gets an avatar. Taking the last character of the ref rather than the first
+   * because references share a prefix — every "POS-…" would otherwise render
+   * the same letter and the avatars would stop distinguishing anything.
+   */
+  initialFor(flag: FlagSummary): string {
+    const name = flag.customerName?.trim();
+    if (name) {
+      return name.charAt(0).toUpperCase();
+    }
+    const ref = flag.customerRef.trim();
+    return ref ? ref.charAt(ref.length - 1).toUpperCase() : '?';
   }
 
   setStatus(status: FlagStatus | null): void {

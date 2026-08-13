@@ -8,6 +8,7 @@ import com.lucklotter.repo.RetentionFlagRepository;
 import com.lucklotter.repo.WeeklyCount;
 import com.lucklotter.web.dto.OverviewStatsResponse;
 import com.lucklotter.web.dto.OverviewStatsResponse.RecoveryRate;
+import com.lucklotter.web.dto.OverviewStatsResponse.StatusBreakdown;
 import com.lucklotter.web.dto.OverviewStatsResponse.WeeklyPoint;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +62,81 @@ public class OverviewStatsService {
                 offers.countByBusinessIdAndStatus(businessId, OfferStatus.SENT),
                 offers.countByBusinessIdAndStatus(businessId, OfferStatus.NO_CONTACT),
                 recoveryRate(resolved, active + resolved),
-                weeklySeries(businessId));
+                weeklySeries(businessId),
+                comparison(businessId),
+                new StatusBreakdown(resolved, active, belowThreshold),
+                overdueBuckets(businessId));
+    }
+
+    /**
+     * This eight-week period against the one immediately before it.
+     *
+     * <p>Restricted to metrics that are events with a timestamp. "Customers
+     * monitored" and "currently quiet" are deliberately absent: they describe
+     * how things stand now, and nothing in the schema records how they stood
+     * eight weeks ago, so any arrow next to them would be reconstructed rather
+     * than measured.
+     */
+    private OverviewStatsResponse.PeriodComparison comparison(UUID businessId) {
+        Instant now = Instant.now();
+        Instant currentFrom = now.minus(WEEKS * 7L, ChronoUnit.DAYS);
+        Instant previousFrom = currentFrom.minus(WEEKS * 7L, ChronoUnit.DAYS);
+
+        long raisedNow = flags.countByBusinessIdAndFlaggedAtGreaterThanEqualAndFlaggedAtLessThan(
+                businessId, currentFrom, now);
+        long raisedBefore = flags.countByBusinessIdAndFlaggedAtGreaterThanEqualAndFlaggedAtLessThan(
+                businessId, previousFrom, currentFrom);
+
+        long recoveredNow = flags.countByBusinessIdAndResolvedAtGreaterThanEqualAndResolvedAtLessThan(
+                businessId, currentFrom, now);
+        long recoveredBefore = flags.countByBusinessIdAndResolvedAtGreaterThanEqualAndResolvedAtLessThan(
+                businessId, previousFrom, currentFrom);
+
+        long sentNow = offers.countByBusinessIdAndSentAtGreaterThanEqualAndSentAtLessThan(
+                businessId, currentFrom, now);
+        long sentBefore = offers.countByBusinessIdAndSentAtGreaterThanEqualAndSentAtLessThan(
+                businessId, previousFrom, currentFrom);
+
+        BigDecimal recoveryNow = ratio(recoveredNow, raisedNow);
+        BigDecimal recoveryBefore = ratio(recoveredBefore, raisedBefore);
+
+        return new OverviewStatsResponse.PeriodComparison(
+                raisedNow, raisedBefore, changePercent(raisedNow, raisedBefore),
+                recoveredNow, recoveredBefore, changePercent(recoveredNow, recoveredBefore),
+                sentNow, sentBefore, changePercent(sentNow, sentBefore),
+                recoveryNow, recoveryBefore,
+                recoveryNow == null || recoveryBefore == null
+                        ? null : recoveryNow.subtract(recoveryBefore));
+    }
+
+    private List<OverviewStatsResponse.OverdueBucket> overdueBuckets(UUID businessId) {
+        return flags.countActiveFlagsByOverdueBucket(businessId).stream()
+                .map(row -> new OverviewStatsResponse.OverdueBucket(row.getBucket(), row.getTotal()))
+                .toList();
+    }
+
+    /**
+     * @return null when {@code before} is zero. Growth from nothing has no
+     *         percentage, and rendering it as "+100%" or "+∞" would dress up
+     *         the first week of data as a trend.
+     */
+    private static BigDecimal changePercent(long now, long before) {
+        if (before == 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(now - before)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(before), 1, RoundingMode.HALF_UP);
+    }
+
+    /** @return null when there is no denominator — no rate, as opposed to 0%. */
+    private static BigDecimal ratio(long part, long whole) {
+        if (whole == 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(part)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(whole), 1, RoundingMode.HALF_UP);
     }
 
     /**

@@ -35,6 +35,11 @@ import { ToastService } from '../shared/toast.service';
     } @else {
       <form [formGroup]="form" (ngSubmit)="submit()" novalidate class="grid">
         <section class="card block">
+          <!-- The chip is decorative: each card already says what it does in
+               words, and the icon only helps the eye find the card again. -->
+          <span class="chip chip-when" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/></svg>
+          </span>
           <h2>When to flag a customer</h2>
           <p class="hint" style="margin-bottom:var(--space-4)">
             Each customer is judged against their own rhythm, not one fixed number of days —
@@ -88,6 +93,9 @@ import { ToastService } from '../shared/toast.service';
         </section>
 
         <section class="card block">
+          <span class="chip chip-who" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.25"/><path d="M4 16.5c1.2-2.5 3.4-3.75 6-3.75s4.8 1.25 6 3.75"/></svg>
+          </span>
           <h2>How often the same person can get one</h2>
           <p class="hint" style="margin-bottom:var(--space-4)">
             After an offer reaches someone, they're left alone for a while before they can be
@@ -116,6 +124,9 @@ import { ToastService } from '../shared/toast.service';
         </section>
 
         <section class="card block">
+          <span class="chip chip-total" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><path d="M17 3 9 11M17 3l-5 14-3-6-6-3z"/></svg>
+          </span>
           <h2>How many you'll send in total</h2>
           <p class="hint" style="margin-bottom:var(--space-4)">
             A ceiling on the whole programme, so it can't cost more than you planned. Customers
@@ -144,6 +155,9 @@ import { ToastService } from '../shared/toast.service';
         </section>
 
         <section class="card block">
+          <span class="chip chip-offer" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><rect x="3" y="8" width="14" height="9" rx="1.5"/><path d="M2.5 8h15M10 8v9M10 8S8.5 4 6.75 4a2 2 0 1 0 0 4M10 8s1.5-4 3.25-4a2 2 0 1 1 0 4"/></svg>
+          </span>
           <h2>What to offer them</h2>
           <p class="hint" style="margin-bottom:var(--space-4)">
             Applied to every offer generated from now on. Offers already sent keep the deal they were
@@ -184,6 +198,30 @@ import { ToastService } from '../shared/toast.service';
     }
     .block { padding: var(--space-5); }
     h2 { margin-bottom: var(--space-2); }
+
+    .chip {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius);
+      margin-bottom: var(--space-3);
+    }
+    .chip svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Tinted per card so the four are distinguishable at a glance, but all
+       drawn from the existing ramp rather than new brand colours. */
+    .chip-when { background: var(--primary-50); color: var(--primary-600); }
+    .chip-who { background: var(--success-50); color: var(--success-600); }
+    .chip-total { background: var(--primary-100); color: var(--primary-700); }
+    .chip-offer { background: var(--warning-50); color: var(--warning-600); }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   `],
 })

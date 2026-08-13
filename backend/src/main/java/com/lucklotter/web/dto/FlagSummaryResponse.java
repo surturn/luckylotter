@@ -20,6 +20,13 @@ public record FlagSummaryResponse(
     UUID flagId,
     UUID customerId,
     String customerRef,
+    /**
+     * The customer's name when the POS supplied one, else null. A name is not
+     * contact data — it is what lets an admin recognise who this row is about
+     * without cross-referencing a till ID — but it is still personal, so the
+     * list carries it and nothing else identifying (NFR-4).
+     */
+    String customerName,
     FlagStatus status,
     Instant lastVisitAt,
     Instant flaggedAt,
