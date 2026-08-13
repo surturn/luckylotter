@@ -4,7 +4,6 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Base for persistence tests. Runs against a real Postgres 16 with the Flyway
@@ -33,22 +32,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 public abstract class
 AbstractPostgresTest {
 
-    // Same major version as docker-compose.yml, so tests and the dev stack
-    // can't disagree about constraint or type behaviour.
-    private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16")
-                    .withDatabaseName("lucklotter_test")
-                    .withUsername("lucklotter")
-                    .withPassword("lucklotter");
-
-    static {
-        POSTGRES.start();
-    }
-
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        PostgresTestContainer.registerDatasourceProperties(registry);
     }
 }

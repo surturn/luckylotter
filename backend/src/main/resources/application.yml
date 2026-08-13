@@ -47,6 +47,14 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+  health:
+    mail:
+      # Mail reachability is not liveness. Spring probes the SMTP host for this
+      # indicator, so an outage at the provider would turn /actuator/health red
+      # and have the platform restart or de-pool an app whose dashboard, API and
+      # scan are all working. Delivery problems surface where they belong —
+      # offers go FAILED with a failure code, and the dashboard shows it.
+      enabled: false
 
 lucklotter:
   security:
