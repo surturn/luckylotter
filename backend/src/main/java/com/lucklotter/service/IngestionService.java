@@ -76,8 +76,13 @@ public class IngestionService {
         transaction.setOccurredAt(request.occurredAt());
         transactions.saveAndFlush(transaction);
 
+        // Is this the customer coming back, or history arriving late? Captured
+        // before recomputeCadence, which is what moves lastVisitAt forward.
+        boolean isReturnVisit = customer.getLastVisitAt() == null
+                || request.occurredAt().isAfter(customer.getLastVisitAt());
+
         recomputeCadence(customer, request.occurredAt());
-        UUID resolvedFlagId = resolveOpenFlag(customer);
+        UUID resolvedFlagId = isReturnVisit ? resolveOpenFlag(customer) : null;
 
         log.info("Ingested transaction: businessId={} customerId={} transactionId={} "
                         + "transactionCount={} avgIntervalDays={} resolvedFlagId={}",
@@ -145,6 +150,15 @@ public class IngestionService {
     /**
      * The customer visited, so their open flag is answered (FR-9). Exactly one
      * can be open — the partial unique index guarantees it.
+     *
+     * <p>Only called for a transaction that moves {@code lastVisitAt} forward.
+     * A <strong>backdated</strong> one must not resolve a flag: importing a
+     * year of POS history for a customer who is currently lapsed would close
+     * their flag on the strength of a sale from months ago, reporting them as
+     * recovered when nobody has seen them. Worse, it would do it silently and
+     * in bulk — one import could clear a whole dashboard. The same condition
+     * governs both, so a transaction that cannot move the last-visit date
+     * cannot answer the flag either.
      *
      * @return the flag that was closed, or null if none was open
      */
