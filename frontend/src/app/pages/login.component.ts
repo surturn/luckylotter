@@ -11,7 +11,24 @@ import { AuthService } from '../core/auth.service';
     <main class="wrap">
       <div class="card panel">
         <div class="brand">
-          <span class="mark" aria-hidden="true"></span>
+          <!-- The same mark the shell uses. This is the first screen anyone
+               sees, so it can't be the placeholder the rest of the app grew
+               out of. -->
+          <svg class="mark" width="34" height="34" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <rect width="28" height="28" rx="8" fill="url(#luck-mark-login)" />
+            <g stroke="#fff" stroke-width="2" stroke-linecap="round">
+              <path d="M6 18v-4" opacity="0.55" />
+              <path d="M10.5 18v-6" opacity="0.75" />
+              <path d="M15 18v-8" />
+              <path d="M22 8.5v11" stroke-dasharray="0.5 3.5" />
+            </g>
+            <defs>
+              <linearGradient id="luck-mark-login" x1="0" y1="0" x2="28" y2="28">
+                <stop class="stop-from" />
+                <stop class="stop-to" offset="1" />
+              </linearGradient>
+            </defs>
+          </svg>
           <div>
             <h1>LuckLotter</h1>
             <p class="muted small" style="margin:0">Retention dashboard</p>
@@ -67,13 +84,11 @@ import { AuthService } from '../core/auth.service';
       gap: var(--space-3);
       margin-bottom: var(--space-5);
     }
-    .mark {
-      width: 34px;
-      height: 34px;
-      border-radius: 9px;
-      background: linear-gradient(140deg, var(--primary-600), var(--warning-600));
-      flex: none;
-    }
+    .mark { flex: none; }
+    /* stop-color as a presentation attribute doesn't resolve var(), so the
+       gradient stops are styled here — same reason as in the shell. */
+    .mark .stop-from { stop-color: var(--primary-500); }
+    .mark .stop-to { stop-color: var(--primary-700); }
   `],
 })
 export class LoginComponent {

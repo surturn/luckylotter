@@ -239,7 +239,16 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
       line-height: 1.15;
       letter-spacing: -0.02em;
     }
-    .stat-primary .value { font-size: 2.75rem; }
+    /* The only figure here that carries a decimal, and the data face is
+       monospaced — the point gets a full digit's advance width, so "41.4%"
+       reads as "41 . 4%". The UI face sets it as one number. The monospaced
+       face stays on the whole-number stats, where it costs nothing. */
+    .stat-primary .value {
+      font-size: 2.75rem;
+      font-family: var(--font-ui);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+    }
     .sub { font-size: var(--text-sm); color: var(--text-muted); }
     .chart-card { padding: var(--space-5); }
     .retry { flex: none; min-height: 32px; padding: 0 var(--space-3); font-size: var(--text-sm); }

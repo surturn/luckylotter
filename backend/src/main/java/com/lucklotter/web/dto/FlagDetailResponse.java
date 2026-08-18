@@ -22,6 +22,8 @@ public record FlagDetailResponse(
 
     UUID customerId,
     String customerRef,
+    /** What the POS calls this person, when it named them at all; null otherwise. */
+    String customerName,
     Instant firstSeenAt,
     Instant lastVisitAt,
     int transactionCount,

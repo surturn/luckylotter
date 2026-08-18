@@ -30,8 +30,17 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       <div class="banner banner-error" role="alert">{{ error() }}</div>
     } @else {
       @if (flag(); as detail) {
+      <!-- The list identifies a customer by name when the POS gave one, so this
+           page has to as well, or following a row through feels like landing on
+           a different customer. The till reference stays visible either way —
+           it is what the admin can actually look up in their own system. -->
       <div class="head">
-        <h1 class="mono">{{ detail.customerRef }}</h1>
+        @if (detail.customerName) {
+          <h1>{{ detail.customerName }}</h1>
+          <span class="mono ref">{{ detail.customerRef }}</span>
+        } @else {
+          <h1 class="mono">{{ detail.customerRef }}</h1>
+        }
         <app-status-pill [status]="detail.status" />
       </div>
 
@@ -188,6 +197,8 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       margin-bottom: var(--space-4);
       flex-wrap: wrap;
     }
+    /* Secondary to the name, but still legible — support reads this aloud. */
+    .head .ref { color: var(--text-muted); font-size: var(--text-sm); }
     .explain {
       padding: var(--space-4);
       margin-bottom: var(--space-4);

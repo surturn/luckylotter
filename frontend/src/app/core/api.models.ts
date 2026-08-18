@@ -93,6 +93,7 @@ export interface FlagDetail {
   resolvedAt: string | null;
   customerId: string;
   customerRef: string;
+  customerName: string | null;
   firstSeenAt: string;
   lastVisitAt: string | null;
   transactionCount: number;

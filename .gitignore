@@ -20,6 +20,9 @@ Thumbs.db
 .env
 *.local
 .claude
-# Playwright MCP artefacts
+# Playwright MCP artefacts, and the loose screenshots taken while checking a
+# change. Screenshots that documentation actually references are not scratch —
+# without them docs/presentation.md is a page of broken images.
 .playwright-mcp/
 *.png
+!docs/images/*.png

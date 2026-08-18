@@ -167,8 +167,13 @@ cd frontend && npm install && npm start
 Tracked as hard gates in `PRD-TODOS.md`:
 
 - Structured JSON logging, and a no-PII audit against real ingestion payloads —
-  the first data that actually carries emails and phone numbers.
-- Test coverage for the service layer; only the persistence mapping is covered
-  today.
-- A real `NotificationSender`. Phase 1 ships a logging stub: offers reach `SENT`
-  without anything being delivered.
+  the first data that actually carries emails and phone numbers. `Redact.scrub`
+  keeps third-party error text out of the logs today; what it has never been
+  run against is a live POS feed.
+- A live mail provider. The SMTP path itself is real — template, transport,
+  `PENDING → SENT / FAILED` and the failure-code mapping all execute — but it
+  points at Mailpit, so nothing reaches an actual person. Switching over is
+  `MAIL_HOST` / `MAIL_PORT` / `MAIL_AUTH` plus credentials.
+- SMS. A phone-only customer lands at `FAILED` with a retriable code rather
+  than a false `SENT`, so a sender added later picks those offers up.
+- Redemption tracking. Offers carry a code; nothing marks one as used.
