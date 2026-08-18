@@ -1,0 +1,12 @@
+{
+  "name": "lucklotter-docs",
+  "private": true,
+  "type": "module",
+  "description": "Toolchain for regenerating presentation.docx and presentation.pdf from presentation.md. Not part of the application build.",
+  "scripts": {
+    "build": "pwsh ./build-docs.ps1"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

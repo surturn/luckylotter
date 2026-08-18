@@ -88,9 +88,9 @@ business already exists, so it can never touch real data.
 
 ## 3. Demo script
 
-Seven stops. Each one names what to say and what it actually proves.
+Seven steps. Each one names what to say and what it actually proves.
 
-### Stop 1 — Sign in
+### Step 1 — Sign in
 
 ![Login screen](images/01-login.png)
 
@@ -104,7 +104,7 @@ tokens with a default everyone can read.
 
 ---
 
-### Stop 2 — Overview: is this working?
+### Step 2 — Overview: is this working?
 
 ![Overview dashboard](images/02-overview.png)
 
@@ -128,7 +128,7 @@ pointing at:
 
 ---
 
-### Stop 3 — The flag list: the evidence, per row
+### Step 3 — The flag list: the evidence, per row
 
 ![Flagged customers](images/03-flags-list.png)
 
@@ -150,7 +150,7 @@ enforcing at most one open flag per customer. See
 
 ---
 
-### Stop 4 — One flag in full
+### Step 4 — One flag in full
 
 ![Flag detail, offer sent](images/05-flag-detail-sent.png)
 
@@ -181,7 +181,7 @@ The **Came back** filter on the list is the same set, counted:
 
 ---
 
-### Stop 5 — The offer that was really sent
+### Step 5 — The offer that was really sent
 
 Open <http://localhost:8025> — the Mailpit inbox catching everything the app
 sends:
@@ -197,7 +197,7 @@ sentence simply omits it rather than printing an empty slot.
 
 ---
 
-### Stop 6 — Tuning the trigger
+### Step 6 — Tuning the trigger
 
 ![Trigger settings](images/08-trigger-settings.png)
 
@@ -223,7 +223,7 @@ visits before a customer has a rhythm worth measuring.
 
 ---
 
-### Stop 7 — Importing a real POS export
+### Step 7 — Importing a real POS export
 
 ![CSV column mapping](images/10-import-column-mapping.png)
 
