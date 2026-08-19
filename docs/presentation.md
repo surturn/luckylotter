@@ -143,9 +143,10 @@ the reason is on the row."
   phone. That gap is deliberately visible — see [Edge case 3](#3-a-customer-with-no-contact-details).
 - The filters (**All / Still quiet / Came back**) are counts, not just labels.
 
-Press **Run scan now**, then press it again. The second run flags nobody. That
-is not the loop being careful — it is a partial unique index in Postgres
-enforcing at most one open flag per customer. See
+Nobody raised these flags by hand. The scan ran when the stack started, and it
+is the same method the 02:00 schedule calls. Press **Run scan now** and it flags
+nobody — that is not the loop being careful, it is a partial unique index in
+Postgres enforcing at most one open flag per customer. See
 [Edge case 5](#5-two-scans-running-at-once).
 
 ---
@@ -183,8 +184,12 @@ The **Came back** filter on the list is the same set, counted:
 
 ### Step 5 — The offer that was really sent
 
+**Say:** "Nobody sent these. They were waiting before I signed in."
+
 Open <http://localhost:8025> — the Mailpit inbox catching everything the app
-sends:
+sends. The mail is already there: the startup scan flagged the quiet customers
+and handed their offers straight to SMTP, which is the whole claim this system
+makes about retention — that it runs without anyone remembering to run it.
 
 ![Offer inbox](images/11-offer-inbox.png)
 
@@ -192,6 +197,10 @@ sends:
 
 The email is addressed by name, names the
 business, and carries the same redemption code shown on the flag detail page.
+Nine of them arrive. One customer is missing from the inbox with a *retriable*
+failure — the till recorded a phone number and no email, and there is no SMS
+sender yet — and two more never left at all, the `NO_CONTACT` pair the amber
+banner counts. The gaps are as much the demo as the deliveries.
 Where the POS supplied a "usual order", the copy uses it; where it didn't, the
 sentence simply omits it rather than printing an empty slot.
 

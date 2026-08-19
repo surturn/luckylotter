@@ -43,9 +43,15 @@ an admin login, and 11 customers whose visit histories are built to exercise
 every path — customers who should flag, customers still on cadence, customers
 with no contact details, and customers with too little history to judge.
 
+Seeding finishes by running the real cadence-break scan, so the flags are raised
+and the offers are **already waiting in the Mailpit inbox** by the time the stack
+finishes booting — nobody presses anything to make the notification path run. It
+is the same method the 02:00 schedule calls, not a shortcut past it. **Run scan
+now** is still there and now demonstrates something better: a second run flags
+nobody.
+
 Sign in with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (defaults
-`admin@lucklotter.test` / `demo-password-123`), then hit **Run scan now** rather
-than waiting for the 02:00 job.
+`admin@lucklotter.test` / `demo-password-123`).
 
 Seeding is skipped entirely if any business already exists, so it can't touch
 real data.
@@ -61,10 +67,13 @@ real data.
    the offer generated, and its delivery state.
 4. **Trigger settings.** Sensitivity is presented as named choices with a worked
    example that updates live, because `1.5` means nothing to a café owner.
-5. **Run scan now**, twice. The second run flags nobody — one open flag per
-   customer is enforced by a partial unique index, so re-running is safe. Open
-   <http://localhost:8025> to read the offers that just went out, each carrying
-   the redemption code shown on the flag detail page.
+5. **Open <http://localhost:8025>.** The offers are already there: the scan that
+   raised these flags ran at startup and dispatched them over SMTP on its own.
+   Each mail carries the redemption code shown on the flag detail page. Nine
+   arrive, one customer fails with a retriable code because the till recorded a
+   phone number and no email, and two never leave at all — those are the
+   `NO_CONTACT` pair. Then press **Run scan now**: it flags nobody, because one
+   open flag per customer is enforced by a partial unique index.
 6. **Import a POS export.** `docs/sample-pos-export.csv` is a 25-row file using
    a different till vendor's column names — `Receipt No`, `Cust ID`, `Sale
    Date`, `Total`. The importer detects all six and pre-fills the mapping form,

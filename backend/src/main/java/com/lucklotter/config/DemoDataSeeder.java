@@ -13,6 +13,7 @@ import com.lucklotter.repo.OfferRepository;
 import com.lucklotter.repo.RetentionFlagRepository;
 import com.lucklotter.service.IngestionService;
 import com.lucklotter.service.RedemptionCodeGenerator;
+import com.lucklotter.service.RetentionScanService;
 import com.lucklotter.web.dto.TransactionIngestRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,20 @@ import java.util.UUID;
  *
  * <p>Without it the overview shows one bar and a recovery rate off six flags,
  * which says nothing about whether the mechanism works over time.
+ *
+ * <h2>On the scan that runs at the end</h2>
+ *
+ * Seeding finishes by running the real cadence-break scan once, which flags the
+ * quiet customers and dispatches their offers over SMTP. So a demo stack has
+ * mail waiting in the inbox the moment it finishes booting, with nobody having
+ * pressed anything — which is the claim being made about this system, that the
+ * notification path runs by itself.
+ *
+ * <p>It calls {@link RetentionScanService#scan} — the same method the 02:00
+ * schedule calls, not a demo shortcut past it. Waiting for that schedule would
+ * leave a freshly started demo showing an empty inbox for up to a day, and
+ * writing the offers straight to {@code SENT} instead would put the one claim
+ * worth demonstrating beyond reach of the demo.
  */
 @Component
 @ConditionalOnProperty(name = "lucklotter.seed.enabled", havingValue = "true")
@@ -62,6 +77,7 @@ public class DemoDataSeeder implements CommandLineRunner {
     private final RetentionFlagRepository flags;
     private final OfferRepository offers;
     private final IngestionService ingestion;
+    private final RetentionScanService retentionScan;
     private final RedemptionCodeGenerator redemptionCodes;
     private final PasswordEncoder passwordEncoder;
     private final String adminEmail;
@@ -73,6 +89,7 @@ public class DemoDataSeeder implements CommandLineRunner {
                           RetentionFlagRepository flags,
                           OfferRepository offers,
                           IngestionService ingestion,
+                          RetentionScanService retentionScan,
                           RedemptionCodeGenerator redemptionCodes,
                           PasswordEncoder passwordEncoder,
                           @Value("${lucklotter.seed.admin-email}") String adminEmail,
@@ -83,6 +100,7 @@ public class DemoDataSeeder implements CommandLineRunner {
         this.flags = flags;
         this.offers = offers;
         this.ingestion = ingestion;
+        this.retentionScan = retentionScan;
         this.redemptionCodes = redemptionCodes;
         this.passwordEncoder = passwordEncoder;
         this.adminEmail = adminEmail;
@@ -184,6 +202,32 @@ public class DemoDataSeeder implements CommandLineRunner {
         log.info("Seeded demo data: businessId={} customers={} transactions={} historicalFlags={} adminUserId={}",
                 business.getId(), PROFILES.length + HISTORY.length, transactionCount,
                 HISTORY.length, admin.getId());
+
+        runInitialScan(business.getId());
+    }
+
+    /**
+     * Runs the scan the schedule would have run at 02:00, so the demo has flags
+     * and delivered offers without waiting a day or pressing a button.
+     *
+     * <p>The historical offers are already {@code SENT}, and the dispatcher only
+     * picks up {@code PENDING} and {@code FAILED}, so this mails the customers
+     * who just flagged and re-mails nobody.
+     *
+     * <p>A failure here is logged and swallowed. The seeded data is sound
+     * whether or not a mail server happened to be listening, and an offer that
+     * could not be delivered is left {@code FAILED} — retriable, so the next
+     * scan picks it up rather than the whole demo failing to start.
+     */
+    private void runInitialScan(UUID businessId) {
+        try {
+            RetentionScanService.ScanSummary summary = retentionScan.scan(businessId);
+            log.info("Seed scan complete: businessId={} flagged={} skipped={} errored={}",
+                    businessId, summary.flagged(), summary.skipped(), summary.errored());
+        } catch (RuntimeException e) {
+            log.error("Seed scan failed; demo data is seeded but unflagged: businessId={}",
+                    businessId, e);
+        }
     }
 
     /** Customers whose current state the next scan will act on. */
