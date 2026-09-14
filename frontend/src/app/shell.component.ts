@@ -65,6 +65,10 @@ import { ToastHostComponent } from './shared/toast-host.component';
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 17.5V3.5h9l-1.5 3 1.5 3h-9"/></svg>
             Flagged customers
           </a>
+          <a routerLink="/report" routerLinkActive="active">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 3.5h6l3.5 3.5v9.5h-9.5z"/><path d="M11.5 3.5V7H15"/><path d="M7.5 11.5h5M7.5 14h5"/></svg>
+            Retention report
+          </a>
           <a routerLink="/import" routerLinkActive="active">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M3.5 14v2.5h13V14"/></svg>
             Import

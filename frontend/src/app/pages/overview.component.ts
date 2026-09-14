@@ -53,6 +53,7 @@ const WINDOWS: readonly { key: ReportingWindowKey; label: string }[] = [
           </select>
         </label>
         <a routerLink="/flags" class="btn-secondary link-btn">See flagged customers</a>
+        <a routerLink="/report" class="btn-secondary link-btn">Retention report</a>
       </div>
     </div>
 

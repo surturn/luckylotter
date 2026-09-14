@@ -345,6 +345,108 @@ export interface OverdueBucket {
   customers: number;
 }
 
+/**
+ * The retention diagnostic (§7) — the dashboard's evidence, assembled into one
+ * document.
+ *
+ * Every figure here is a count of something observed, except `opportunity`,
+ * which is a projection and says so on its face.
+ */
+export interface RetentionDiagnostic {
+  generatedAt: string;
+  executiveSummary: DiagnosticExecutiveSummary;
+  customerBehaviour: CustomerBehaviour;
+  atRiskCustomers: FlagSummary[];
+  /** How many active flags exist in total, so the truncation above is visible. */
+  atRiskTotal: number;
+  interventionPerformance: InterventionPerformance;
+  opportunity: OpportunityEstimate;
+  definitions: DiagnosticDefinitions;
+}
+
+export interface DiagnosticExecutiveSummary {
+  customersAnalyzed: number;
+  customersWithSufficientHistory: number;
+  customersShowingCadenceDisruption: number;
+  highValueCustomersAtRisk: number;
+  customersReturnedAfterIntervention: number;
+  /** Null whenever `opportunity.available` is false. */
+  estimatedRetentionOpportunity: number | null;
+}
+
+export interface CustomerBehaviour {
+  /** Null when no customer has a measurable rhythm. */
+  typicalPurchaseIntervals: CadenceSpread | null;
+  /** Always five entries, including bands nobody is in. */
+  cadenceSegments: CadenceSegment[];
+  purchaseCountDistribution: PurchaseBand[];
+}
+
+export interface CadenceSpread {
+  p25Days: number | null;
+  medianDays: number | null;
+  p75Days: number | null;
+  meanDays: number | null;
+}
+
+export interface CadenceSegment {
+  key: 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY' | 'QUARTERLY' | 'RARER';
+  label: string;
+  /** The band in days, so the boundaries are on the page rather than implied. */
+  intervalRange: string;
+  visitsPerMonth: string;
+  customers: number;
+  /** Null when there are no monitored customers — there is no share of nothing. */
+  sharePercent: number | null;
+}
+
+export interface PurchaseBand {
+  key: string;
+  label: string;
+  customers: number;
+  sharePercent: number | null;
+}
+
+export interface InterventionPerformance {
+  currencyCode: string;
+  flaggedNeverContacted: number;
+  impact: RetentionImpact;
+}
+
+/**
+ * What the drifting customers are plausibly worth, with its working.
+ *
+ * Not recoverable revenue, and never to be labelled as such: nothing in the
+ * data separates a customer who returned because of an offer from one who was
+ * coming back anyway.
+ */
+export interface OpportunityEstimate {
+  available: boolean;
+  /** Why not, in the operator's words. Null when available. */
+  unavailableReason: string | null;
+  customersInScope: number;
+  cohortContacted: number;
+  historicalRecoveryPercent: number | null;
+  averageReturningCustomerValue: number | null;
+  expectedReturns: number;
+  estimatedRevenue: number | null;
+  estimatedCost: number | null;
+  estimatedNet: number | null;
+  method: string;
+}
+
+export interface DiagnosticDefinitions {
+  customersAnalyzed: string;
+  customersWithSufficientHistory: string;
+  customersShowingCadenceDisruption: string;
+  highValueCustomersAtRisk: string;
+  customersReturnedAfterIntervention: string;
+  typicalPurchaseIntervals: string;
+  cadenceSegments: string;
+  purchaseCountDistribution: string;
+  opportunity: string;
+}
+
 export interface VisitPoint {
   occurredAt: string;
 }

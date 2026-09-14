@@ -30,6 +30,10 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/flag-detail.component').then((m) => m.FlagDetailComponent),
       },
       {
+        path: 'report',
+        loadComponent: () => import('./pages/report.component').then((m) => m.ReportComponent),
+      },
+      {
         path: 'import',
         loadComponent: () => import('./pages/import.component').then((m) => m.ImportComponent),
       },

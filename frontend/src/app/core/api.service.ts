@@ -14,6 +14,7 @@ import {
   OverviewStats,
   PageResponse,
   ReportingWindowKey,
+  RetentionDiagnostic,
   RetentionImpact,
   ScanSummary,
 } from './api.models';
@@ -128,6 +129,18 @@ export class ApiService {
    */
   getRetentionImpact(): Observable<RetentionImpact> {
     return this.http.get<RetentionImpact>('/v1/stats/retention-impact');
+  }
+
+  /**
+   * The retention diagnostic (§7), whole.
+   *
+   * No reporting window is sent. The report is about the state of the customer
+   * base: its behaviour section covers everyone's complete history and its money
+   * section totals the whole programme, so a period parameter would be a third
+   * clock and the reader could not tell which figures it moved.
+   */
+  getDiagnostic(): Observable<RetentionDiagnostic> {
+    return this.http.get<RetentionDiagnostic>('/v1/stats/diagnostic');
   }
 
   /** How many flagged customers have no contact details at all (FR-5). */
