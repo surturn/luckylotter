@@ -14,6 +14,7 @@ import com.lucklotter.repo.CustomerRepository;
 import com.lucklotter.repo.OfferRepository;
 import com.lucklotter.repo.PosTransactionRepository;
 import com.lucklotter.repo.RetentionFlagRepository;
+import com.lucklotter.web.dto.FlagDetailResponse;
 import com.lucklotter.web.dto.FlagSummaryResponse;
 import com.lucklotter.web.dto.PageResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -270,25 +271,38 @@ class FlagQueryServiceTest extends AbstractPostgresTest {
     }
 
     @Test
-    @DisplayName("the detail view's expected date comes from the cadence the flag was raised on")
-    void expectedNextVisitIsFromTheSnapshottedCadence() {
-        // Read live, this would silently change the arithmetic under a flag
-        // raised weeks ago the moment the customer's cadence moved.
+    @DisplayName("the detail view's expected date comes from the visit the flag was raised on")
+    void expectedNextVisitIsFromTheVisitTheFlagWasRaisedOn() {
+        // Read live, the arithmetic under a flag raised weeks ago moves: the
+        // business can retune the cadence, and a customer who came back has a
+        // later visit than the one the flag ever saw. The flag has to keep
+        // explaining itself with the numbers it actually used.
         Business business = business();
-        Instant lastVisit = daysAgo(20);
-        Customer customer = customer(business, "POS-1", lastVisit, "10.00");
-        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, daysAgo(9));
+        // Held, not recomputed at the assertion: daysAgo() reads the clock.
+        Instant visitBeforeFlag = daysAgo(20);
+        Instant sentAt = daysAgo(9);
+        Instant cameBackAt = daysAgo(3);
+        Customer customer = customer(business, "POS-1", cameBackAt, "10.00");
+        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, sentAt);
         flag.setAvgIntervalDaysAtFlag(new BigDecimal("6.00"));
+        flag.resolve(cameBackAt);
         flags.saveAndFlush(flag);
         customer.setAvgIntervalDays(new BigDecimal("99.00"));
         customers.saveAndFlush(customer);
+        sendOffer(business, flag, sentAt);
+        transaction(business, customer, new BigDecimal("42.00"), visitBeforeFlag);
+        transaction(business, customer, new BigDecimal("42.00"), cameBackAt);
         entityManager.flush();
+        entityManager.clear();
 
-        FlagSummaryResponse row = only(
-                list(business.getId(), null, FlagSort.PRIORITY, 0, 25));
+        FlagDetailResponse detail = flagQuery.detail(flag.getId(), business.getId());
 
-        assertThat(row.expectedNextVisitAt())
-                .isEqualTo(lastVisit.plus(6, ChronoUnit.DAYS));
+        assertThat(detail.expectedNextVisitAt())
+                .as("the visit before the flag, plus the cadence snapshotted with it")
+                .isEqualTo(visitBeforeFlag.plus(6, ChronoUnit.DAYS));
+        assertThat(detail.daysBeyondUsual())
+                .as("how late the return was, not how long they have been gone since")
+                .isEqualByComparingTo("11.00");
     }
 
     @Test
@@ -358,6 +372,94 @@ class FlagQueryServiceTest extends AbstractPostgresTest {
         entityManager.flush();
         entityManager.clear();
         return flagQuery.list(businessId, status, sort, page, size);
+    }
+
+    @Test
+    @DisplayName("the timeline dates the customer's own rhythm, not the threshold it crossed")
+    void detailDatesTheUsualRhythm() {
+        // §13's "8 days beyond normal" is measured from when the customer was
+        // due, not from the later threshold that actually fired the flag. The
+        // two differ by the sensitivity setting, and showing the threshold
+        // instead would make every flag look minutes old.
+        Business business = business();
+        // Held, not recomputed at the assertion: daysAgo() reads the clock, and
+        // two calls a few milliseconds apart differ by exactly that.
+        Instant lastVisit = daysAgo(20);
+        Customer customer = customer(business, "POS-1", lastVisit, "6.00");
+        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, daysAgo(9));
+        transaction(business, customer, new BigDecimal("42.00"), lastVisit);
+        entityManager.flush();
+        entityManager.clear();
+
+        FlagDetailResponse detail = flagQuery.detail(flag.getId(), business.getId());
+
+        assertThat(detail.expectedNextVisitAt()).isEqualTo(lastVisit.plus(6, ChronoUnit.DAYS));
+        assertThat(detail.daysBeyondUsual().doubleValue())
+                .as("20 quiet days against a 6-day rhythm")
+                .isCloseTo(14.0, within(0.01));
+        assertThat(detail.thresholdDaysApplied()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    @DisplayName("the timeline shows the visit that answered the offer")
+    void detailShowsTheReturnThatAnsweredTheOffer() {
+        Business business = business();
+        Customer customer = customer(business, "POS-1", daysAgo(12), "10.00");
+        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, daysAgo(9));
+        sendOffer(business, flag, daysAgo(8));
+        Instant returnedAt = daysAgo(5);
+        transaction(business, customer, new BigDecimal("42.00"), returnedAt);
+        entityManager.flush();
+        entityManager.clear();
+
+        FlagDetailResponse detail = flagQuery.detail(flag.getId(), business.getId());
+
+        assertThat(detail.returnedAt()).isEqualTo(returnedAt);
+        assertThat(detail.returnAmount()).isEqualByComparingTo("42.00");
+    }
+
+    @Test
+    @DisplayName("a visit outside the recovery window is not shown as the offer working")
+    void detailIgnoresAReturnOutsideTheWindow() {
+        // The same predicate the list counts prior returns with: a customer the
+        // list says ignored the offer cannot have a page showing one.
+        Business business = business();
+        Customer customer = customer(business, "POS-1", daysAgo(70), "10.00");
+        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, daysAgo(65));
+        Instant sentAt = daysAgo(60);
+        sendOffer(business, flag, sentAt);
+        // 40 days after a 14-day window.
+        transaction(business, customer, new BigDecimal("42.00"), daysAgo(20));
+        entityManager.flush();
+        entityManager.clear();
+
+        FlagDetailResponse detail = flagQuery.detail(flag.getId(), business.getId());
+
+        assertThat(detail.offerSentAt()).isEqualTo(sentAt);
+        assertThat(detail.returnedAt()).isNull();
+        assertThat(detail.returnAmount()).isNull();
+    }
+
+    @Test
+    @DisplayName("a flag with no offer has no return, and dates the visit it was raised on")
+    void detailWithoutAnOffer() {
+        Business business = business();
+        Instant lastVisit = daysAgo(12);
+        Customer customer = customer(business, "POS-1", lastVisit, "10.00");
+        RetentionFlag flag = flag(business, customer, FlagStatus.ACTIVE, daysAgo(9));
+        transaction(business, customer, new BigDecimal("42.00"), lastVisit);
+        transaction(business, customer, new BigDecimal("42.00"), daysAgo(5));
+        entityManager.flush();
+        entityManager.clear();
+
+        FlagDetailResponse detail = flagQuery.detail(flag.getId(), business.getId());
+
+        assertThat(detail.returnedAt())
+                .as("a visit with no offer in front of it is not a response to one")
+                .isNull();
+        assertThat(detail.expectedNextVisitAt())
+                .as("the visit after the flag does not move a date the flag already used")
+                .isEqualTo(lastVisit.plus(10, ChronoUnit.DAYS));
     }
 
     private List<String> refs(PageResponse<FlagSummaryResponse> page) {

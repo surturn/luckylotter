@@ -2,17 +2,22 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { FlagStatus, FlagSummary, FlagVisits, PageResponse } from '../core/api.models';
+import { FlagSort, FlagStatus, FlagSummary, FlagVisits, OverdueBand, PageResponse } from '../core/api.models';
 import { StatusPillComponent } from '../shared/status-pill.component';
 import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
 
 /**
- * The flagged-customer list (FR-7, US-2).
+ * The flagged-customer list as the main action screen (FR-7, US-2, §5).
  *
- * Each row carries the evidence behind its own trigger — the customer's usual
- * gap, the threshold it crossed, and the visit rhythm those numbers came from —
- * so the admin can judge whether the flag was fair instead of taking it on
- * trust.
+ * The screen's question is "who should I act on today", and the default order
+ * answers it: risk, value and how the customer has answered offers before,
+ * combined. Everything the operator needs to judge a row sits in the row — how
+ * long they have been gone against their own usual gap, what they are worth
+ * next to this business's average customer, what happened the last times anyone
+ * tried, and what is stopping this one from being contacted now.
+ *
+ * The score is arithmetic over the business's own transaction history. The page
+ * says so, because a number this prominent would otherwise read as a prediction.
  */
 @Component({
   selector: 'app-flags-list',
@@ -60,19 +65,54 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       </div>
     }
 
-    <div class="filters" role="group" aria-label="Filter by status">
-      @for (option of filters; track option.label) {
-        <button type="button"
-                [class]="status() === option.value ? 'btn-primary' : 'btn-secondary'"
-                [attr.aria-pressed]="status() === option.value"
-                (click)="setStatus(option.value)">
-          {{ option.label }}
-          @if (countFor(option.value) !== null) {
-            <span class="count">{{ countFor(option.value) }}</span>
+    <div class="controls">
+      <div class="filters" role="group" aria-label="Filter by status">
+        @for (option of filters; track option.label) {
+          <button type="button"
+                  [class]="status() === option.value ? 'btn-primary' : 'btn-secondary'"
+                  [attr.aria-pressed]="status() === option.value"
+                  (click)="setStatus(option.value)">
+            {{ option.label }}
+            @if (countFor(option.value) !== null) {
+              <span class="count">{{ countFor(option.value) }}</span>
+            }
+          </button>
+        }
+      </div>
+
+      <label class="sort">
+        <span class="small muted">Order by</span>
+        <select [value]="sort()" (change)="setSort($event)">
+          @for (option of sorts; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
           }
-        </button>
-      }
+        </select>
+      </label>
     </div>
+
+    <!-- Stated before the numbers, not after: the score decides the order of
+         this page, and "priority" on its own would read as a prediction. -->
+    <details class="def">
+      <summary>How this order is worked out</summary>
+      <div>
+        <p>
+          Each customer scores 0–100 on three things. <strong>How far past their own usual gap they are</strong>
+          counts for 40% — measured against their threshold, which is their own rhythm scaled by your
+          sensitivity setting, not a fixed number of days. <strong>What they are worth</strong> counts for 40%:
+          their lifetime spend against what an average customer of yours spends. <strong>How they have answered
+          offers before</strong> counts for the remaining 20%.
+        </p>
+        <p>
+          A customer who has never been offered anything scores 50 on that third part rather than 0 — never
+          having been asked is not the same as having said no, and scoring it 0 would bury every new customer
+          under everyone who has ever replied. A customer who has already come back scores nothing and sorts
+          last, because that row is history and this screen is about today.
+        </p>
+        <p>
+          It is arithmetic over your own transaction history. It is not a prediction and not a model.
+        </p>
+      </div>
+    </details>
 
     <div class="card">
       @if (loading()) {
@@ -99,16 +139,17 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
         } @else {
           <div class="table-scroll">
             <table>
-              <caption class="visually-hidden">Customers flagged as at risk</caption>
+              <caption class="visually-hidden">Customers flagged as at risk, most worth acting on first</caption>
               <thead>
                 <tr>
                   <th scope="col">Customer</th>
+                  <th scope="col" class="numeric">Priority</th>
                   <th scope="col">Visit rhythm</th>
                   <th scope="col">Last visit</th>
-                  <th scope="col" class="numeric">Usual gap</th>
-                  <th scope="col" class="numeric">Flagged after</th>
-                  <th scope="col">Offer</th>
-                  <th scope="col">Flag</th>
+                  <th scope="col" class="numeric">Days overdue</th>
+                  <th scope="col" class="numeric">Lifetime spend</th>
+                  <th scope="col">Offers so far</th>
+                  <th scope="col">What to do</th>
                   <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
@@ -126,7 +167,20 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
                           @if (flag.customerName) {
                             <span class="name">{{ flag.customerName }}</span>
                           }
+                          @if (flag.usualItem) {
+                            <span class="sub">usually {{ flag.usualItem }}</span>
+                          }
                         </span>
+                      </span>
+                    </td>
+                    <!-- The combination, with its parts underneath: a score you
+                         can't take apart is a number the operator has to
+                         either trust or ignore. -->
+                    <td class="numeric">
+                      <span class="score mono">{{ flag.priorityScore }}</span>
+                      <span class="sub mono"
+                            [title]="priorityTitle(flag)">
+                        {{ flag.priority.risk }}·{{ flag.priority.value }}·{{ flag.priority.history }}
                       </span>
                     </td>
                     <td class="rhythm">
@@ -136,18 +190,51 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
                         <span class="skeleton rhythm-placeholder"></span>
                       }
                     </td>
-                    <td class="mono">{{ flag.lastVisitAt ? (flag.lastVisitAt | date: 'd MMM yyyy') : '—' }}</td>
-                    <td class="mono numeric">every {{ flag.avgIntervalDaysAtFlag | number: '1.0-0' }} days</td>
-                    <!-- Rounded so the column scans; the exact value stays in
-                         the tooltip, since it is what the threshold actually
-                         was. -->
-                    <td class="mono numeric"
-                        [title]="(flag.thresholdDaysApplied | number: '1.1-1') + ' quiet days'">
-                      {{ flag.thresholdDaysApplied | number: '1.0-0' }} quiet days
+                    <td>
+                      <span class="mono">{{ flag.lastVisitAt ? (flag.lastVisitAt | date: 'd MMM yyyy') : '—' }}</span>
+                      <span class="sub">usually every {{ flag.avgIntervalDaysAtFlag | number: '1.0-0' }} days</span>
                     </td>
-                    <td><app-status-pill [status]="flag.offerStatus" /></td>
-                    <td><app-status-pill [status]="flag.status" /></td>
-                    <td><a [routerLink]="['/flags', flag.flagId]">View</a></td>
+                    <!-- Rounded so the column scans; the exact threshold stays in
+                         the tooltip, since it is the number that actually fired. -->
+                    <td class="numeric">
+                      @if (flag.daysOverdue !== null && flag.riskBand) {
+                        <span class="mono overdue" [title]="overdueTitle(flag)">
+                          {{ flag.daysOverdue | number: '1.0-0' }} days
+                        </span>
+                        <span class="band" [class]="'band ' + bandClass(flag.riskBand)">{{ bandLabel(flag.riskBand) }}</span>
+                      } @else {
+                        <span class="muted">—</span>
+                        <!-- Not "back on their rhythm": one visit answered the
+                             offer, which is not the same as a rhythm resumed,
+                             and this column would be claiming the latter. -->
+                        <span class="sub">came back</span>
+                      }
+                    </td>
+                    <td class="numeric">
+                      <span class="mono">
+                        {{ flag.totalSpend | number: '1.2-2' }}
+                        @if (currency(); as code) {
+                          <span class="code">{{ code }}</span>
+                        }
+                      </span>
+                      <span class="sub">
+                        {{ flag.visitCount }} {{ flag.visitCount === 1 ? 'visit' : 'visits' }}
+                        @if (flag.visitCount > 0) {
+                          · avg {{ flag.averageTransactionValue | number: '1.2-2' }}
+                        }
+                      </span>
+                    </td>
+                    <td>
+                      <span>{{ responseLabel(flag) }}</span>
+                      @if (flag.priorInterventions > 0) {
+                        <span class="sub">{{ flag.priorReturns }} came back</span>
+                      }
+                    </td>
+                    <td>
+                      <span>{{ flag.recommendedAction }}</span>
+                      <span class="sub"><app-status-pill [status]="flag.offerStatus" /></span>
+                    </td>
+                    <td><a [routerLink]="['/flags', flag.flagId]">Why?</a></td>
                   </tr>
                 }
               </tbody>
@@ -177,8 +264,29 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       flex-wrap: wrap;
       margin-bottom: var(--space-4);
     }
-    .filters { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); flex-wrap: wrap; }
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-4);
+    }
+    .filters { display: flex; gap: var(--space-2); flex-wrap: wrap; }
     .filters button { min-height: 36px; padding: 0 var(--space-3); font-size: var(--text-sm); }
+    /* The global label rule makes this a block with a bottom margin; this one
+       is a flex row beside the filter buttons, so both are undone here. */
+    .sort { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; margin-bottom: 0; }
+    .sort select { width: auto; min-width: 200px; min-height: 36px; padding-top: 0; padding-bottom: 0; font-size: var(--text-sm); }
+    .code { font-family: var(--font-data); font-size: var(--text-xs); color: var(--text-muted); }
+    .def { margin-bottom: var(--space-4); }
+    .def summary {
+      cursor: pointer;
+      font-size: var(--text-sm);
+      color: var(--primary-600);
+      padding: var(--space-1) 0;
+    }
+    .def p { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--text-muted); max-width: 78ch; }
     .count {
       font-family: var(--font-data);
       font-variant-numeric: tabular-nums;
@@ -192,7 +300,7 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
        names. Needs its own background, or rows show through it. */
     .table-scroll { max-height: 65vh; overflow: auto; }
 
-    .customer { display: flex; align-items: center; gap: var(--space-3); }
+    .customer { display: flex; align-items: flex-start; gap: var(--space-3); }
     .avatar {
       flex: none;
       width: 30px;
@@ -217,6 +325,30 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* Supporting figures: present enough to judge with, quiet enough that the
+       column the operator is actually scanning still leads. */
+    .sub {
+      display: block;
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+    .score { font-size: var(--text-lg); font-weight: 700; display: block; }
+    .overdue { font-weight: 600; display: block; }
+    .band {
+      display: inline-block;
+      margin-top: 2px;
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      font-size: var(--text-xs);
+      white-space: nowrap;
+    }
+    /* Same three steps the overview's chart uses, so a customer called "long
+       overdue" on one screen isn't "high risk" on another. */
+    .band-just { background: var(--neutral-100); color: var(--text-muted); }
+    .band-well { background: #fdf3d7; color: #8a6100; }
+    .band-long { background: var(--danger-50); color: var(--danger-700); }
+
     thead th { position: sticky; top: 0; z-index: 1; }
     tbody tr:nth-child(even) { background: var(--neutral-50); }
     tbody tr:hover { background: var(--primary-50); }
@@ -242,8 +374,16 @@ export class FlagsListComponent {
     { label: 'Came back', value: 'RESOLVED' },
   ];
 
+  readonly sorts: { label: string; value: FlagSort }[] = [
+    { label: 'What to act on first', value: 'PRIORITY' },
+    { label: 'Most overdue', value: 'OVERDUE' },
+    { label: 'Highest spend', value: 'VALUE' },
+    { label: 'Recently flagged', value: 'RECENT' },
+  ];
+
   readonly page = signal<PageResponse<FlagSummary> | null>(null);
   readonly status = signal<FlagStatus | null>(null);
+  readonly sort = signal<FlagSort>('PRIORITY');
   readonly loading = signal(true);
   readonly loadFailed = signal(false);
   readonly scanning = signal(false);
@@ -251,6 +391,12 @@ export class FlagsListComponent {
   readonly banner = signal<string | null>(null);
   readonly uncontactable = signal(0);
   readonly contactWarningHidden = signal(false);
+
+  /**
+   * Only used to label the spend column. A figure with no currency beside it
+   * invites the reader to assume one, and the business's own is a request away.
+   */
+  readonly currency = signal<string | null>(null);
 
   /** Visit history per flag, fetched a page at a time. */
   private readonly visits = signal<Map<string, { visits: string[]; flaggedAt: string }>>(new Map());
@@ -302,8 +448,74 @@ export class FlagsListComponent {
     return ref ? ref.charAt(ref.length - 1).toUpperCase() : '?';
   }
 
+  bandLabel(band: OverdueBand): string {
+    switch (band) {
+      case 'JUST_PAST':
+        return 'just past';
+      case 'WELL_PAST':
+        return 'well past';
+      case 'LONG_OVERDUE':
+        return 'long overdue';
+    }
+  }
+
+  bandClass(band: OverdueBand): string {
+    switch (band) {
+      case 'JUST_PAST':
+        return 'band-just';
+      case 'WELL_PAST':
+        return 'band-well';
+      case 'LONG_OVERDUE':
+        return 'band-long';
+    }
+  }
+
+  /**
+   * Spells the components out on hover. The three numbers beside the score are
+   * unlabelled by design — they only mean anything against each other — so the
+   * tooltip is where they get named.
+   */
+  priorityTitle(flag: FlagSummary): string {
+    if (flag.status === 'RESOLVED') {
+      // Scored zero on every component. Reading those zeros out as "0 for what
+      // they are worth" would describe a customer who came back as worthless
+      // rather than a row that is simply no longer being ranked.
+      return 'They came back, so this row is history and is not scored.';
+    }
+    return `${flag.priority.risk} of 100 for how overdue they are, `
+      + `${flag.priority.value} for what they are worth, `
+      + `${flag.priority.history} for how they have answered offers`;
+  }
+
+  /**
+   * The threshold that actually fired the flag. The column rounds to whole
+   * days because that is what scans; the tooltip keeps the exact number, since
+   * the rounded one is not the number the trigger compared against.
+   */
+  overdueTitle(flag: FlagSummary): string {
+    return `${flag.thresholdDaysApplied.toFixed(1)} quiet days is this customer's threshold`;
+  }
+
+  /**
+   * How many offers this customer has had, and what came of them. Kept separate
+   * from the current offer's status: this is the record behind the customer, not
+   * the state of the intervention in front of the operator today.
+   */
+  responseLabel(flag: FlagSummary): string {
+    if (flag.priorInterventions === 0) {
+      return 'Never offered before';
+    }
+    const noun = flag.priorInterventions === 1 ? 'offer' : 'offers';
+    return `${flag.priorInterventions} ${noun} before this`;
+  }
+
   setStatus(status: FlagStatus | null): void {
     this.status.set(status);
+    this.load(0);
+  }
+
+  setSort(event: Event): void {
+    this.sort.set((event.target as HTMLSelectElement).value as FlagSort);
     this.load(0);
   }
 
@@ -336,7 +548,7 @@ export class FlagsListComponent {
   load(page: number): void {
     this.loading.set(true);
     this.loadFailed.set(false);
-    this.api.listFlags(page, this.pageSize, this.status()).subscribe({
+    this.api.listFlags(page, this.pageSize, this.status(), this.sort()).subscribe({
       next: (data) => {
         this.page.set(data);
         this.loading.set(false);
@@ -378,6 +590,11 @@ export class FlagsListComponent {
         this.uncontactable.set(stats.offersNoContact);
       },
       error: () => this.totals.set(null),
+    });
+    this.api.getConfig().subscribe({
+      next: (config) => this.currency.set(config.currencyCode),
+      // The code is a label on a column that still has correct numbers in it.
+      error: () => this.currency.set(null),
     });
   }
 }

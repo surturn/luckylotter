@@ -55,12 +55,6 @@ public record FlagSummaryResponse(
      */
     String usualItem,
 
-    /**
-     * When this customer's own rhythm said they were due, from the cadence and
-     * last visit the flag was raised on. Null when the last visit is unknown.
-     */
-    Instant expectedNextVisitAt,
-
     /** Quiet days past the threshold. Null for a resolved flag (§13). */
     BigDecimal daysOverdue,
 

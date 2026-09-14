@@ -58,6 +58,137 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
         </p>
       </div>
 
+      <!-- §13. The explanation above says why the flag was fair; this says how
+           the system arrived at it, in the order the customer lived it. It is
+           the part that makes the product legible to someone seeing it for the
+           first time, so it leads with dates rather than with settings. -->
+      <section class="card block why">
+        <h2>Why this customer?</h2>
+
+        <ol class="steps">
+          @if (visits() && visits()!.length > 0) {
+            <li>
+              <span class="dot dot-visit" aria-hidden="true"></span>
+              <span class="what">
+                <strong>{{ visits()!.length }} {{ visits()!.length === 1 ? 'visit' : 'visits' }} recorded</strong>
+                <span class="sub">
+                  Most recent {{ visits()![visits()!.length - 1] | date: 'd MMM yyyy' }},
+                  first {{ visits()![0] | date: 'd MMM yyyy' }}
+                </span>
+              </span>
+            </li>
+          }
+
+          <li>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="what">
+              <strong>Their usual rhythm: about every
+                {{ detail.avgIntervalDaysAtFlag | number: '1.0-1' }} days</strong>
+              <span class="sub">
+                Worked out from the gaps between their visits, as they stood when this flag was raised.
+              </span>
+            </span>
+          </li>
+
+          @if (detail.expectedNextVisitAt) {
+            <li>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="what">
+                <strong>On that rhythm they were due back
+                  {{ detail.expectedNextVisitAt | date: 'd MMM yyyy' }}</strong>
+                @if (detail.daysBeyondUsual !== null && detail.daysBeyondUsual > 0) {
+                  <!-- Measured to the return when there is one, so a customer
+                       who answered the offer is not described as still overdue
+                       months after they came back. -->
+                  <span class="sub">
+                    @if (detail.returnedAt) {
+                      They came back
+                    } @else {
+                      Today is
+                    }
+                    <strong class="overdue">{{ detail.daysBeyondUsual | number: '1.0-0' }} days</strong>
+                    past that date.
+                  </span>
+                } @else {
+                  <span class="sub">They are not yet past that date.</span>
+                }
+              </span>
+            </li>
+          }
+
+          <li>
+            <span class="dot dot-flag" aria-hidden="true"></span>
+            <span class="what">
+              <strong>Flagged {{ detail.flaggedAt | date: 'd MMM yyyy' }}</strong>
+              <span class="sub">
+                Once
+                {{ detail.thresholdDaysApplied | number: '1.0-1' }} days
+                had passed with no visit. That is their own rhythm scaled by your sensitivity setting,
+                which is why it is later than the date above.
+              </span>
+            </span>
+          </li>
+
+          @if (detail.offerId) {
+            <li>
+              <span class="dot dot-offer" aria-hidden="true"></span>
+              <span class="what">
+                <strong>Offer: {{ dealLabel(detail) }}</strong>
+                <span class="sub">
+                  @if (detail.offerSentAt) {
+                    Sent {{ detail.offerSentAt | date: 'd MMM yyyy' }}
+                  } @else {
+                    Not sent
+                  }
+                  @if (detail.redemptionCode) {
+                    · code <span class="code">{{ detail.redemptionCode }}</span>
+                  }
+                </span>
+              </span>
+            </li>
+          }
+
+          @if (detail.offerId) {
+            <li>
+              <span class="dot" [class]="detail.returnedAt ? 'dot dot-good' : 'dot'"></span>
+              <span class="what">
+                @if (detail.returnedAt) {
+                  <strong>Came back {{ detail.returnedAt | date: 'd MMM yyyy' }}</strong>
+                  <span class="sub">
+                    @if (detail.returnAmount !== null) {
+                      A purchase of
+                      <span class="mono">
+                        {{ detail.returnAmount | number: '1.2-2' }}
+                        @if (currency(); as code) { <span class="code">{{ code }}</span> }
+                      </span>
+                      —
+                    }
+                    @if (recoveryWindowDays(); as window) {
+                      inside the {{ window }}-day window after the offer.
+                    } @else {
+                      inside the recovery window after the offer.
+                    }
+                  </span>
+                } @else {
+                  <strong>
+                    @if (recoveryWindowDays(); as window) {
+                      No visit in the {{ window }} days after the offer
+                    } @else {
+                      No visit after the offer
+                    }
+                  </strong>
+                  <span class="sub">
+                    Nothing is credited to this intervention. A visit after the window still counts as
+                    the customer returning — it just isn't counted as the offer having worked, which is
+                    why the dashboard's recovered revenue would not include it.
+                  </span>
+                }
+              </span>
+            </li>
+          }
+        </ol>
+      </section>
+
       <section class="card block timeline">
         <h2>Visit rhythm</h2>
         <p class="hint" style="margin:0 0 var(--space-4)">
@@ -255,6 +386,53 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
       padding: 2px 8px;
       border-radius: var(--radius-sm);
     }
+
+    /* --- Why this customer? (§13) ---------------------------------------- */
+    .why { margin-bottom: var(--space-4); }
+    .steps { list-style: none; margin: 0; padding: 0; }
+    .steps li {
+      position: relative;
+      display: flex;
+      gap: var(--space-3);
+      padding: 0 0 var(--space-4) 0;
+    }
+    /* The rule between the dots is the timeline: drawn on the item rather than
+       as a separate element so it can't drift out of step with the markers. */
+    .steps li:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 14px;
+      bottom: 0;
+      width: 1px;
+      background: var(--border);
+    }
+    .steps li:last-child { padding-bottom: 0; }
+    .dot {
+      flex: none;
+      width: 9px;
+      height: 9px;
+      margin-top: 5px;
+      border-radius: var(--radius-full);
+      background: var(--neutral-300);
+      z-index: 1;
+    }
+    .dot-visit { background: var(--primary-600); }
+    .dot-flag { background: var(--danger-600); }
+    .dot-offer { background: var(--warning-600, #b45309); }
+    .dot-good { background: var(--success-600); }
+    .what { display: block; min-width: 0; }
+    .what strong { font-weight: 600; }
+    .sub {
+      display: block;
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+      line-height: 1.45;
+      margin-top: 2px;
+      max-width: 72ch;
+    }
+    .sub .code { font-size: var(--text-xs); letter-spacing: 0.04em; }
+    .overdue { color: var(--danger-700); }
   `],
 })
 export class FlagDetailComponent {
@@ -267,6 +445,15 @@ export class FlagDetailComponent {
   /** Real transaction timestamps; null until they arrive. */
   readonly visits = signal<string[] | null>(null);
   readonly visitsFailed = signal(false);
+
+  /**
+   * The window the return is judged against, read from the business's own
+   * settings rather than held here: the timeline has to state the same number
+   * the dashboard credits returns with, and a copy in the frontend would drift
+   * the moment the setting changed.
+   */
+  readonly recoveryWindowDays = signal<number | null>(null);
+  readonly currency = signal<string | null>(null);
 
   constructor() {
     const id = inject(ActivatedRoute).snapshot.paramMap.get('id')!;
@@ -299,6 +486,16 @@ export class FlagDetailComponent {
       // The timeline is evidence for a decision already explained above it.
       // Losing it degrades the page; it doesn't break it.
       error: () => this.visitsFailed.set(true),
+    });
+
+    // Only ever used to phrase two sentences. A failure leaves both readable
+    // without the number, so there is nothing here worth an error state.
+    this.api.getConfig().subscribe({
+      next: (config) => {
+        this.recoveryWindowDays.set(config.recoveryWindowDays);
+        this.currency.set(config.currencyCode);
+      },
+      error: () => undefined,
     });
   }
 

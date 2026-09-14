@@ -152,6 +152,12 @@ export class VisitSparklineComponent {
       return 'No visits recorded';
     }
     const quietDays = Math.round((this.flagMillis() - times[times.length - 1]) / 86_400_000);
+    if (quietDays <= 0) {
+      // No quiet stretch to measure: on a resolved flag the customer came back,
+      // so the last dot is the return rather than the start of a gap. Counting
+      // from it would announce a negative number of quiet days.
+      return `${times.length} recent visits; the last of them came after the flag was raised.`;
+    }
     return `${times.length} recent visits, then ${quietDays} quiet days before the flag was raised.`;
   });
 }

@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -202,7 +204,6 @@ public class FlagQueryService {
                 action.getTotalSpend(),
                 action.getAverageTransactionValue(),
                 customer.getUsualItem(),
-                expectedNextVisitAt(flag),
                 action.getDaysOverdue(),
                 OverdueBand.of(action.getOverdueness()),
                 action.getPriorInterventions(),
@@ -216,14 +217,25 @@ public class FlagQueryService {
     /**
      * When the rhythm the flag was raised on said this customer was due.
      *
-     * <p>From the last visit and the cadence snapshotted at flagging, not from
-     * the customer's cadence now — the whole point of the detail view is to show
-     * the reasoning the flag was built from, and a live read would silently
-     * change the arithmetic under a flag raised weeks ago (§13).
+     * <p>From the visit that stood when the flag fired and the cadence
+     * snapshotted with it — not from the customer's cadence now, and not from
+     * their latest visit either. Both are live reads that would rewrite the
+     * arithmetic under a flag raised weeks ago (§13): the cadence because the
+     * business can retune it, the last visit because a customer who came back
+     * has one, and the flag would then explain itself with a date it never used.
      */
-    private static Instant expectedNextVisitAt(RetentionFlag flag) {
-        Instant lastVisit = flag.getCustomer().getLastVisitAt();
-        if (lastVisit == null || flag.getAvgIntervalDaysAtFlag() == null) {
+    private Instant expectedNextVisitAt(RetentionFlag flag) {
+        if (flag.getAvgIntervalDaysAtFlag() == null) {
+            return null;
+        }
+        Instant lastVisit = transactions
+                .findLastVisitAtOrBefore(
+                        flag.getBusiness().getId(),
+                        flag.getCustomer().getId(),
+                        flag.getFlaggedAt())
+                .map(PosTransactionRepository.VisitRow::getOccurredAt)
+                .orElse(null);
+        if (lastVisit == null) {
             return null;
         }
         long seconds = flag.getAvgIntervalDaysAtFlag()
@@ -259,9 +271,11 @@ public class FlagQueryService {
         };
     }
 
-    private static FlagDetailResponse toDetail(RetentionFlag flag) {
+    private FlagDetailResponse toDetail(RetentionFlag flag) {
         Customer customer = flag.getCustomer();
         Offer offer = flag.getOffer();
+        Instant expectedNextVisit = expectedNextVisitAt(flag);
+        PosTransactionRepository.ReturnRow returned = firstReturn(flag, offer);
         return new FlagDetailResponse(
                 flag.getId(),
                 flag.getStatus(),
@@ -277,12 +291,59 @@ public class FlagQueryService {
                 customer.isContactable(),
                 flag.getAvgIntervalDaysAtFlag(),
                 flag.getThresholdDaysApplied(),
+                expectedNextVisit,
+                daysBeyondUsual(expectedNextVisit, returned),
                 offer == null ? null : offer.getId(),
                 offer == null ? null : offer.getDealType(),
                 offer == null ? null : offer.getDealValue(),
                 offer == null ? null : offer.getStatus(),
                 offer == null ? null : offer.getRedemptionCode(),
                 offer == null ? null : offer.getFailureCode(),
-                offer == null ? null : offer.getSentAt());
+                offer == null ? null : offer.getSentAt(),
+                returned == null ? null : returned.getOccurredAt(),
+                returned == null ? null : returned.getAmount());
+    }
+
+    /**
+     * The visit that answered this flag's offer, if one did (§13).
+     *
+     * <p>Scoped to the offer that belongs to <em>this</em> flag: an offer on an
+     * earlier flag is a different intervention, and crediting this one with its
+     * result would make the timeline read as though the business tried twice
+     * when it tried once.
+     */
+    private PosTransactionRepository.ReturnRow firstReturn(RetentionFlag flag, Offer offer) {
+        if (offer == null || offer.getSentAt() == null) {
+            return null;
+        }
+        return transactions.findFirstReturn(
+                        flag.getBusiness().getId(),
+                        flag.getCustomer().getId(),
+                        offer.getSentAt(),
+                        flag.getBusiness().getRecoveryWindowDays())
+                .orElse(null);
+    }
+
+    /**
+     * How far past their own due date the customer got — measured to the visit
+     * that answered the offer when there was one, and to now when there wasn't.
+     *
+     * <p>Measuring a returned customer against the clock would have the timeline
+     * say "today is 40 days past that date" about someone who came back in
+     * August, which reads as a customer still lost. Measured to the return it
+     * says how late they were, which is the number the intervention acted on.
+     *
+     * <p>Negative values are left alone: a customer flagged on a threshold that
+     * has since been retuned can sit before their own usual date, and clamping
+     * that to zero would state a number the data contradicts.
+     */
+    private static BigDecimal daysBeyondUsual(Instant expectedNextVisit,
+                                              PosTransactionRepository.ReturnRow returned) {
+        if (expectedNextVisit == null) {
+            return null;
+        }
+        Instant measuredTo = returned == null ? Instant.now() : returned.getOccurredAt();
+        long seconds = Duration.between(expectedNextVisit, measuredTo).getSeconds();
+        return BigDecimal.valueOf(seconds).divide(BigDecimal.valueOf(86400), 2, RoundingMode.HALF_UP);
     }
 }

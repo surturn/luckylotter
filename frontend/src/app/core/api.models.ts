@@ -74,6 +74,30 @@ export interface BusinessConfigUpdate {
   defaultDealValue: number;
 }
 
+/**
+ * How far past their own threshold a quiet customer is. Mirrors
+ * `com.lucklotter.domain.OverdueBand` — the boundaries live there and in the
+ * overview aggregate's SQL, and the two have to move together.
+ */
+export type OverdueBand = 'JUST_PAST' | 'WELL_PAST' | 'LONG_OVERDUE';
+
+/** The orders the flagged list can be read in — `FlagSort` on the server. */
+export type FlagSort = 'PRIORITY' | 'OVERDUE' | 'VALUE' | 'RECENT';
+
+/**
+ * What the priority score is made of, each component clamped to 0-100 so no
+ * single one can carry a customer to the top of the list.
+ *
+ * `history` is 50, not 0, for a customer who has never been offered anything:
+ * that is absence of evidence, and scoring it zero would bury every new
+ * customer under everyone who has ever answered an offer.
+ */
+export interface FlagPriority {
+  risk: number;
+  value: number;
+  history: number;
+}
+
 export interface FlagSummary {
   flagId: string;
   customerId: string;
@@ -92,6 +116,22 @@ export interface FlagSummary {
   /** Code the customer quotes to claim the offer; null for offers issued before codes existed. */
   redemptionCode: string | null;
   offerSentAt: string | null;
+  visitCount: number;
+  totalSpend: number;
+  averageTransactionValue: number;
+  /** Null unless the POS export carried item names for this customer. */
+  usualItem: string | null;
+  /** Days past this customer's own threshold; null for a resolved flag. */
+  daysOverdue: number | null;
+  riskBand: OverdueBand | null;
+  /** Offers sent to this customer before this one, and how many they answered. */
+  priorInterventions: number;
+  priorReturns: number;
+  /** 0-100. 40% risk, 40% value, 20% history — not a model's prediction. */
+  priorityScore: number;
+  priority: FlagPriority;
+  /** Plain language, derived from the state the row is actually in. */
+  recommendedAction: string;
 }
 
 export interface FlagDetail {
@@ -109,6 +149,14 @@ export interface FlagDetail {
   contactable: boolean;
   avgIntervalDaysAtFlag: number;
   thresholdDaysApplied: number;
+  /**
+   * Last visit plus the cadence snapshotted at flagging — the date they were
+   * due. Always earlier than the threshold that fired the flag, which is this
+   * date scaled by the business's sensitivity setting.
+   */
+  expectedNextVisitAt: string | null;
+  /** How far past that date they are now. Null when there is no date to measure from. */
+  daysBeyondUsual: number | null;
   offerId: string | null;
   dealType: DealType | null;
   dealValue: number | null;
@@ -116,6 +164,13 @@ export interface FlagDetail {
   redemptionCode: string | null;
   offerFailureCode: OfferFailureCode | null;
   offerSentAt: string | null;
+  /**
+   * The first visit after the offer, inside the business's recovery window.
+   * Null when the offer went unanswered — or was answered after the window
+   * closed, which the dashboard's money does not count either.
+   */
+  returnedAt: string | null;
+  returnAmount: number | null;
 }
 
 export interface PageResponse<T> {

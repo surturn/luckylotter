@@ -5,6 +5,7 @@ import {
   BusinessConfig,
   BusinessConfigUpdate,
   FlagDetail,
+  FlagSort,
   FlagStatus,
   FlagSummary,
   FlagVisits,
@@ -29,8 +30,16 @@ export class ApiService {
     return this.http.put<BusinessConfig>('/v1/businesses/me/config', update);
   }
 
-  listFlags(page: number, size: number, status: FlagStatus | null): Observable<PageResponse<FlagSummary>> {
-    let params = new HttpParams().set('page', page).set('size', size);
+  /**
+   * The ranked flagged-customer list.
+   *
+   * `sort` is sent explicitly rather than left to the default, because the
+   * screen offers a choice and a response that silently fell back to a
+   * different order than the one asked for would be worse than an error.
+   */
+  listFlags(page: number, size: number, status: FlagStatus | null,
+            sort: FlagSort): Observable<PageResponse<FlagSummary>> {
+    let params = new HttpParams().set('page', page).set('size', size).set('sort', sort);
     if (status) {
       params = params.set('status', status);
     }
