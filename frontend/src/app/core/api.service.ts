@@ -54,9 +54,16 @@ export class ApiService {
    * Reads a CSV's columns and first rows so the admin can map them. Imports
    * nothing.
    */
-  previewImport(file: File): Observable<ImportPreview> {
+  previewImport(file: File, mapping?: Record<string, string>): Observable<ImportPreview> {
     const form = new FormData();
     form.append('file', file);
+    // With a mapping the server also counts what importing the file would do,
+    // so the admin sees the numbers before committing rather than after.
+    Object.entries(mapping ?? {}).forEach(([field, column]) => {
+      if (column) {
+        form.append(field, column);
+      }
+    });
     return this.http.post<ImportPreview>('/v1/transactions/import/preview', form);
   }
 

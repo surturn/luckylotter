@@ -338,6 +338,29 @@ export interface ScanSummary {
 }
 
 /**
+ * What the file would do if it were imported now, counted against the mapping
+ * the caller sent. Null until a complete mapping has been confirmed — before
+ * that there is no honest way to know which column is the customer or the date.
+ *
+ * The counts come from the same row conversion the import runs, so they are a
+ * statement about this file against this mapping rather than an estimate that
+ * could disagree with the import's own result.
+ */
+export interface ImportPreviewStats {
+  rowCount: number;
+  validRows: number;
+  invalidRowCount: number;
+  /** The first few failures, by 1-based line in the file. */
+  invalidSamples: ImportRowError[];
+  uniqueCustomers: number;
+  /** Date range of the rows that would import; null when none of them would. */
+  earliest: string | null;
+  latest: string | null;
+  /** True when the file has more rows than can be imported in one go. */
+  truncated: boolean;
+}
+
+/**
  * A CSV's shape before anything is imported. `suggested` maps our field names
  * to the caller's column names — a starting point for the mapping form, never
  * applied without confirmation.
@@ -346,6 +369,7 @@ export interface ImportPreview {
   columns: string[];
   sampleRows: string[][];
   suggested: Record<string, string>;
+  stats: ImportPreviewStats | null;
 }
 
 export interface ImportRowError {

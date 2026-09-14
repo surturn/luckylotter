@@ -51,12 +51,27 @@ public class TransactionController {
 
     /**
      * Reads a CSV's header and first rows so the admin can map their columns
-     * onto ours (FR-1, §12). Imports nothing.
+     * onto ours, and — when the mapping is sent along — counts what importing
+     * the file would do (FR-1, §8). Imports nothing either way.
+     *
+     * <p>The same request therefore answers both "what is in this file" and
+     * "what would happen if I imported it", against whichever mapping the
+     * caller last confirmed.
      */
     @PostMapping(value = "/import/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ImportPreviewResponse previewCsv(@AuthenticationPrincipal AdminPrincipal admin,
-                                            @RequestPart("file") MultipartFile file) {
-        return csvImportService.preview(file);
+                                            @RequestPart("file") MultipartFile file,
+                                            @RequestParam(value = "customerRef", required = false) String customerRef,
+                                            @RequestParam(value = "customerName", required = false) String customerName,
+                                            @RequestParam(value = "usualItem", required = false) String usualItem,
+                                            @RequestParam(value = "externalTxnId", required = false) String externalTxnId,
+                                            @RequestParam(value = "amount", required = false) String amount,
+                                            @RequestParam(value = "occurredAt", required = false) String occurredAt,
+                                            @RequestParam(value = "contactEmail", required = false) String contactEmail,
+                                            @RequestParam(value = "contactPhone", required = false) String contactPhone) {
+        ColumnMapping mapping = new ColumnMapping(customerRef, customerName, usualItem,
+                externalTxnId, amount, occurredAt, contactEmail, contactPhone);
+        return csvImportService.preview(admin.businessId(), file, mapping);
     }
 
     /**

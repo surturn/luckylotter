@@ -22,9 +22,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -50,6 +52,12 @@ public class CsvImportService {
     private static final int MAX_REPORTED_ERRORS = 50;
     /** Enough for an admin to recognise a column by its contents. */
     private static final int PREVIEW_ROWS = 4;
+    /**
+     * Enough failures to see the pattern — one bad date format, one missing
+     * column — without turning the mapping panel into a report. The complete
+     * list belongs to the import result, which is where a fix gets checked.
+     */
+    private static final int PREVIEW_ERROR_SAMPLES = 10;
 
     private final IngestionService ingestion;
 
@@ -58,18 +66,45 @@ public class CsvImportService {
     }
 
     /**
-     * Reads the header and a few rows so the admin can map columns. Imports
-     * nothing.
+     * Reads the header and a few rows so the admin can map columns, and — once
+     * a mapping has been confirmed — what importing the file would do. Imports
+     * nothing either way.
+     *
+     * <p>Without a mapping there is nothing honest to count: which column holds
+     * the customer, the amount or the date is the very thing still being
+     * decided, and counting from the suggestion would put confident figures
+     * beside columns the admin may be about to change.
      */
-    public ImportPreviewResponse preview(MultipartFile file) {
+    public ImportPreviewResponse preview(UUID businessId, MultipartFile file, ColumnMapping mapping) {
         try (BufferedReader reader = open(file)) {
             List<String> header = readHeader(reader);
 
+            // Resolved before a single row is read, so a column that is not in
+            // the file fails the preview outright instead of surfacing as every
+            // row being unreadable.
+            Map<String, Integer> columns = mapping != null && mapping.isComplete()
+                    ? resolve(header, mapping)
+                    : null;
+
             List<List<String>> samples = new ArrayList<>();
+            DryRun dryRun = columns == null ? null : new DryRun(businessId, columns);
+
+            // One pass for both: the samples and the counts are two views of the
+            // same rows, and reading them separately would cost a second scan of
+            // a file that can hold fifty thousand of them.
             String line;
-            while (samples.size() < PREVIEW_ROWS && (line = reader.readLine()) != null) {
-                if (!line.isBlank()) {
-                    samples.add(parseLine(line));
+            int lineNumber = 1;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                if (line.isBlank()) {
+                    continue;
+                }
+                List<String> row = parseLine(line);
+                if (samples.size() < PREVIEW_ROWS) {
+                    samples.add(row);
+                }
+                if (dryRun != null && !dryRun.accept(lineNumber, row)) {
+                    break;
                 }
             }
 
@@ -83,9 +118,10 @@ public class CsvImportService {
 
             // Row contents are the admin's own data and never leave this
             // response — the log records shape only (NFR-4).
-            log.info("CSV preview: columns={} sampleRows={} autoMapped={}",
-                    header.size(), samples.size(), suggested.size());
-            return new ImportPreviewResponse(header, samples, suggested);
+            log.info("CSV preview: columns={} sampleRows={} autoMapped={} counted={}",
+                    header.size(), samples.size(), suggested.size(), dryRun != null);
+            return new ImportPreviewResponse(header, samples, suggested,
+                    dryRun == null ? null : dryRun.toStats());
         } catch (IOException e) {
             throw new ValidationException("The file could not be read: " + e.getMessage());
         }
@@ -260,6 +296,73 @@ public class CsvImportService {
         }
         String value = row.get(index).trim();
         return value.isEmpty() ? null : value;
+    }
+
+    /**
+     * One file counted against one mapping, writing nothing.
+     *
+     * <p>The rows go through the same conversion the import uses, which is what
+     * makes the counts worth showing: "97% valid" describes this file against
+     * this mapping rather than a second estimate that could disagree with what
+     * the import then reports.
+     */
+    private static final class DryRun {
+
+        private final UUID businessId;
+        private final Map<String, Integer> columns;
+
+        private int rowCount;
+        private int valid;
+        private int invalid;
+        private boolean truncated;
+        private final List<RowError> failures = new ArrayList<>();
+        private final Set<String> customers = new HashSet<>();
+        private Instant earliest;
+        private Instant latest;
+
+        private DryRun(UUID businessId, Map<String, Integer> columns) {
+            this.businessId = businessId;
+            this.columns = columns;
+        }
+
+        /**
+         * Counts one row.
+         *
+         * @return false when the file holds more rows than can be imported, so
+         *         the caller stops reading. A preview that exists to warn about
+         *         the size of a file should say so rather than fail the request
+         */
+        private boolean accept(int lineNumber, List<String> row) {
+            if (rowCount >= MAX_ROWS) {
+                truncated = true;
+                return false;
+            }
+            rowCount++;
+
+            try {
+                TransactionIngestRequest request = toRequest(businessId, row, columns);
+                valid++;
+                customers.add(request.customerRef());
+                Instant occurredAt = request.occurredAt();
+                if (earliest == null || occurredAt.isBefore(earliest)) {
+                    earliest = occurredAt;
+                }
+                if (latest == null || occurredAt.isAfter(latest)) {
+                    latest = occurredAt;
+                }
+            } catch (RuntimeException e) {
+                invalid++;
+                if (failures.size() < PREVIEW_ERROR_SAMPLES) {
+                    failures.add(new RowError(lineNumber, describe(e)));
+                }
+            }
+            return true;
+        }
+
+        private ImportPreviewResponse.PreviewStats toStats() {
+            return new ImportPreviewResponse.PreviewStats(
+                    rowCount, valid, invalid, failures, customers.size(), earliest, latest, truncated);
+        }
     }
 
     /** Messages describe the problem, never the row — see {@link RowError}. */

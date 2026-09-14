@@ -1,8 +1,8 @@
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
-import { ImportPreview, ImportResult } from '../core/api.models';
+import { ImportPreview, ImportPreviewStats, ImportResult } from '../core/api.models';
 
 /** Our fields, in the order the mapping form presents them. */
 interface FieldSpec {
@@ -28,7 +28,7 @@ interface FieldSpec {
 @Component({
   selector: 'app-import',
   standalone: true,
-  imports: [DecimalPipe, FormsModule],
+  imports: [DatePipe, DecimalPipe, FormsModule],
   template: `
     <h1>Import POS transactions</h1>
     <p class="muted small" style="margin:4px 0 var(--space-5)">
@@ -61,7 +61,9 @@ interface FieldSpec {
                 {{ field.label }}
                 @if (!field.required) { <span class="muted small">(optional)</span> }
               </label>
-              <select [id]="'map-' + field.key" [(ngModel)]="mapping[field.key]"
+              <select [id]="'map-' + field.key"
+                      [ngModel]="mapping[field.key]"
+                      (ngModelChange)="onColumnChosen(field.key, $event)"
                       [name]="field.key"
                       [class.invalid]="field.required && !mapping[field.key] && attempted()">
                 <option value="">— not in this file —</option>
@@ -84,7 +86,78 @@ interface FieldSpec {
             </p>
           }
 
-          <button type="button" class="btn-primary" [disabled]="busy()" (click)="upload()">
+          @if (counting()) {
+            <p class="hint" style="margin-top:var(--space-4)">Counting what this file would do…</p>
+          } @else {
+            @if (stats(); as counts) {
+              <h3 style="margin-top:var(--space-6)">What this file would do</h3>
+              <dl class="tally">
+                <dt>Rows in the file</dt>
+                <dd class="mono">{{ counts.rowCount | number }}</dd>
+                <dt>Ready to import</dt>
+                <dd class="mono good">
+                  {{ counts.validRows | number }}
+                  @if (counts.rowCount > 0) {
+                    <span class="pct">{{ validPercent(counts) }}%</span>
+                  }
+                </dd>
+                <dt>Can't be read</dt>
+                <dd class="mono" [class.bad]="counts.invalidRowCount > 0">
+                  {{ counts.invalidRowCount | number }}
+                </dd>
+                <dt>Customers</dt>
+                <dd class="mono">{{ counts.uniqueCustomers | number }}</dd>
+              </dl>
+
+              @if (counts.earliest && counts.latest) {
+                <p class="hint" style="margin-top:var(--space-3)">
+                  Sales dated {{ counts.earliest | date: 'd MMM yyyy' }} to
+                  {{ counts.latest | date: 'd MMM yyyy' }}.
+                </p>
+              } @else {
+                <p class="hint" style="margin-top:var(--space-3)">
+                  No readable rows, so there is no date range to show.
+                </p>
+              }
+
+              @if (counts.truncated) {
+                <p class="hint" style="margin-top:var(--space-3)">
+                  This file holds more than {{ counts.rowCount | number }} rows; only the first
+                  {{ counts.rowCount | number }} were counted. Split it and import in parts.
+                </p>
+              }
+
+              @if (counts.invalidSamples.length > 0) {
+                <div class="table-scroll" style="margin-top:var(--space-3);max-height:220px">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col" class="numeric">Line</th>
+                        <th scope="col">Problem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of counts.invalidSamples; track row.line) {
+                        <tr>
+                          <td class="mono numeric">{{ row.line }}</td>
+                          <td class="wrap">{{ row.message }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (counts.invalidRowCount > counts.invalidSamples.length) {
+                  <p class="hint" style="margin-top:var(--space-2)">
+                    The first {{ counts.invalidSamples.length }} are listed; the rest will be named
+                    after the import.
+                  </p>
+                }
+              }
+            }
+          }
+
+          <button type="button" class="btn-primary" style="margin-top:var(--space-5)"
+                  [disabled]="busy()" (click)="upload()">
             {{ busy() ? 'Importing…' : 'Import transactions' }}
           </button>
         }
@@ -197,6 +270,7 @@ interface FieldSpec {
     }
     .tally dt { color: var(--text-muted); font-size: var(--text-sm); }
     .tally dd { margin: 0; text-align: right; font-weight: 600; }
+    .pct { color: var(--text-subtle); font-weight: 400; font-size: var(--text-sm); }
     .good { color: var(--success-600); }
     .bad { color: var(--danger-600); }
     .wrap { white-space: normal; font-size: var(--text-sm); }
@@ -248,27 +322,67 @@ export class ImportComponent {
 
   readonly file = signal<File | null>(null);
   readonly preview = signal<ImportPreview | null>(null);
+  readonly stats = signal<ImportPreviewStats | null>(null);
   readonly result = signal<ImportResult | null>(null);
   readonly busy = signal(false);
+  readonly counting = signal(false);
   readonly attempted = signal(false);
   readonly error = signal<string | null>(null);
 
   /** Field key to chosen column name. Bound directly to the selects. */
   mapping: Record<string, string> = {};
 
+  /**
+   * Which preview request is the current one. Every column choice re-requests
+   * the counts, and they do not necessarily come back in the order they were
+   * sent, so an answer to a question the admin has since changed is dropped
+   * rather than shown.
+   */
+  private previewRequest = 0;
+
   pick(event: Event): void {
     const input = event.target as HTMLInputElement;
     const chosen = input.files?.[0] ?? null;
     this.file.set(chosen);
     this.preview.set(null);
+    this.stats.set(null);
     this.result.set(null);
     this.error.set(null);
     this.attempted.set(false);
     this.mapping = {};
 
     if (chosen) {
-      this.loadPreview(chosen);
+      this.loadPreview(chosen, null);
     }
+  }
+
+  /**
+   * Records a column choice and re-counts the file against it.
+   *
+   * The counts are the whole point of confirming the mapping, so they are
+   * recomputed on every change — from the same server-side conversion the
+   * import runs, never estimated in the browser.
+   */
+  onColumnChosen(fieldKey: string, column: string): void {
+    this.mapping = { ...this.mapping, [fieldKey]: column };
+
+    const file = this.file();
+    if (!file) {
+      return;
+    }
+    if (!this.complete()) {
+      // Half a mapping is not a weaker count, it is not a count at all.
+      this.previewRequest++;
+      this.counting.set(false);
+      this.stats.set(null);
+      return;
+    }
+    this.loadPreview(file, this.mapping);
+  }
+
+  /** Whole percent — the fraction is noise beside a line count. */
+  validPercent(counts: ImportPreviewStats): number {
+    return Math.round((counts.validRows / counts.rowCount) * 100);
   }
 
   complete(): boolean {
@@ -317,17 +431,46 @@ export class ImportComponent {
     });
   }
 
-  private loadPreview(file: File): void {
-    this.busy.set(true);
-    this.api.previewImport(file).subscribe({
+  /**
+   * Reads the file. Without a mapping the server returns the columns and its
+   * guesses; with one it also returns what importing would do, which is the
+   * number the admin is being asked to trust.
+   */
+  private loadPreview(file: File, mapping: Record<string, string> | null): void {
+    const token = ++this.previewRequest;
+    if (mapping) {
+      this.counting.set(true);
+    } else {
+      this.busy.set(true);
+    }
+
+    this.api.previewImport(file, mapping ?? undefined).subscribe({
       next: (detected) => {
-        this.preview.set(detected);
-        // Pre-fill from the server's guesses; every one stays editable.
-        this.mapping = { ...detected.suggested };
-        this.busy.set(false);
+        if (token !== this.previewRequest) {
+          return;
+        }
+        if (mapping) {
+          this.stats.set(detected.stats);
+          this.counting.set(false);
+        } else {
+          this.preview.set(detected);
+          // Pre-fill from the server's guesses; every one stays editable.
+          this.mapping = { ...detected.suggested };
+          this.busy.set(false);
+          // The guesses are a mapping: if they cover every required column,
+          // count against them right away rather than making the admin touch a
+          // select to find out what the file holds.
+          if (this.complete()) {
+            this.loadPreview(file, this.mapping);
+          }
+        }
       },
       error: (response) => {
+        if (token !== this.previewRequest) {
+          return;
+        }
         this.busy.set(false);
+        this.counting.set(false);
         this.error.set(
           response.status === 400
             ? response.error?.message ?? 'That file could not be read.'
