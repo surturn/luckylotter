@@ -15,11 +15,14 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Turns exceptions into API responses.
@@ -89,6 +92,28 @@ public class ApiExceptionHandler {
         log.warn("Constraint violation on write: cause={}", Redact.scrubStackTrace(e));
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(body(HttpStatus.CONFLICT, "Conflicts with an existing record"));
+    }
+
+    /**
+     * A query parameter that is present but cannot be read as the type the
+     * handler wants — an unknown reporting window, say.
+     *
+     * <p>Without this it falls through to the catch-all below and answers 500:
+     * the caller is told the server broke when they mistyped a parameter, and a
+     * routine mistake lands in the error log where a real fault is harder to
+     * see. The parameter is named; the value is not echoed, since it is
+     * caller-supplied text and this response goes back out over the wire.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> onBadParameter(MethodArgumentTypeMismatchException e) {
+        String message = "Invalid value for '" + e.getName() + "'";
+        if (e.getRequiredType() != null && e.getRequiredType().isEnum()) {
+            message += "; expected one of "
+                    + Arrays.stream(e.getRequiredType().getEnumConstants())
+                            .map(String::valueOf)
+                            .collect(Collectors.joining(", "));
+        }
+        return ResponseEntity.badRequest().body(body(HttpStatus.BAD_REQUEST, message));
     }
 
     /**

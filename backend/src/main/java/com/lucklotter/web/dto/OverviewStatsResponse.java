@@ -26,13 +26,28 @@ public record OverviewStatsResponse(
     long customersBelowThreshold,
     long activeFlags,
     long resolvedFlags,
+    /** Delivered inside the reporting period, matching the arrow beside it. */
     long offersSent,
+    /** Offers stuck for want of contact details. A backlog right now, not a count for the period. */
     long offersNoContact,
-    /** Recovery over delivered offers, with its denominator and its window. */
+    /**
+     * Which reporting period these figures cover, and what it is divided into.
+     *
+     * <p>Sent with the numbers because a period is not a display preference: a
+     * recovery rate over seven days and one over eight weeks are different
+     * claims, and a caller that renders either without saying which has shown
+     * the reader a number they cannot interpret.
+     */
+    ReportingPeriod reportingPeriod,
+    /** Recovery over delivered offers <em>inside the reporting period</em>. */
     Recovery recovery,
-    /** Exactly 8 entries, oldest first, including weeks where nothing happened. */
-    List<WeeklyPoint> weeklySeries,
-    /** This 8-week period against the previous one. */
+    /**
+     * Activity over the reporting period, oldest first and including buckets
+     * where nothing happened. One entry per bucket, so the length follows the
+     * period: seven or thirty days, or eight weeks.
+     */
+    List<SeriesPoint> activitySeries,
+    /** The reporting period against the one of equal length before it. */
     PeriodComparison comparison,
     /** How the whole customer base currently splits. Adds up to {@code customersTotal}. */
     StatusBreakdown statusBreakdown,
@@ -50,9 +65,12 @@ public record OverviewStatsResponse(
      * two flags and "68%" over four hundred are entirely different claims, and
      * a card showing only the former would overstate the system's evidence.
      *
-     * <p>The denominator is <em>offers delivered</em>, not flags raised: a flag
-     * whose offer never reached the customer is reported separately and is not
-     * counted as an attempt that failed.
+     * <p>The denominator is <em>offers delivered inside the reporting period</em>,
+     * not flags raised: a flag whose offer never reached the customer is reported
+     * separately and is not counted as an attempt that failed. The bound is on
+     * when the offer was sent, not on {@code windowDays} — that is the customer's
+     * own recovery window, a property of the business, and it applies within
+     * every reporting period rather than defining one.
      *
      * @param percent null when {@code contacted} is zero — there is no rate
      *                yet, which is not the same as a rate of 0%
@@ -61,29 +79,46 @@ public record OverviewStatsResponse(
                            long returned,
                            int windowDays,
                            BigDecimal percent,
-                           /** Flags raised that no offer ever reached. */
+                           /** Flags in the same period that no offer ever reached. */
                            long neverContacted) {
     }
 
     /**
-     * One week of activity.
+     * The reporting period a set of figures was measured over.
      *
-     * @param weekStart          Monday of the week, UTC
-     * @param flagsRaised        flags opened during the week
-     * @param customersRecovered flags resolved during the week — a customer who
-     *                           came back
+     * <p>Carries no dates: the series and the comparison each bound themselves
+     * from the same {@code days}, and a pair of instants on top of that would be
+     * a second answer to a question already answered — the one that goes stale
+     * the moment the two disagree.
+     *
+     * @param key   the selector value, e.g. {@code LAST_8_WEEKS}
+     * @param label the same thing in the operator's words, e.g. "Last 8 weeks"
+     * @param unit  {@code day} or {@code week} — what one series point covers
      */
-    public record WeeklyPoint(LocalDate weekStart, long flagsRaised, long customersRecovered) {
+    public record ReportingPeriod(String key, String label, int days, String unit) {
     }
 
     /**
-     * This period against the one before it, both eight weeks long.
+     * One bucket of activity — a day or a week, per
+     * {@link ReportingPeriod#unit()}.
+     *
+     * @param bucketStart        midnight UTC of the day, or the Monday of the
+     *                           week
+     * @param flagsRaised        flags opened during the bucket
+     * @param customersRecovered flags resolved during the bucket — customers who
+     *                           came back
+     */
+    public record SeriesPoint(LocalDate bucketStart, long flagsRaised, long customersRecovered) {
+    }
+
+    /**
+     * The reporting period against the one of equal length before it.
      *
      * <p>Only covers metrics that are <em>events in time</em> — flags raised,
      * customers recovered, offers sent. Deliberately not "customers monitored"
      * or "currently quiet": those are counts of how things stand right now, and
-     * nothing records how they stood eight weeks ago. Showing a trend arrow
-     * against them would mean reconstructing a past the database never stored.
+     * nothing records how they stood a period ago. Showing a trend arrow against
+     * them would mean reconstructing a past the database never stored.
      *
      * <p>The two recovery percentages use the same cohort definition as the card
      * above, bounded to each period by when the offer was delivered — so the

@@ -230,8 +230,28 @@ export interface RetentionImpact {
   };
 }
 
-export interface WeeklyPoint {
-  weekStart: string;
+/**
+ * The reporting periods the dashboard offers.
+ *
+ * These bound which events are *counted*. They bound nothing about the cadence
+ * model — every customer's rhythm, threshold and drift status is derived from
+ * their complete visit history, so changing this changes what the dashboard
+ * shows and never who is flagged.
+ */
+export type ReportingWindowKey = 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'LAST_8_WEEKS';
+
+/** The period the figures came back measured over, echoed by the server. */
+export interface ReportingPeriod {
+  key: ReportingWindowKey;
+  label: string;
+  days: number;
+  /** What one series point covers — `day` or `week`. */
+  unit: 'day' | 'week';
+}
+
+/** One bucket of activity: a day or a week, per `ReportingPeriod.unit`. */
+export interface SeriesPoint {
+  bucketStart: string;
   flagsRaised: number;
   customersRecovered: number;
 }
@@ -244,9 +264,16 @@ export interface OverviewStats {
   resolvedFlags: number;
   offersSent: number;
   offersNoContact: number;
+  reportingPeriod: ReportingPeriod;
+  /** Counted inside the reporting period. */
   recovery: Recovery;
-  /** Always 8 entries, oldest first, including weeks with no activity. */
-  weeklySeries: WeeklyPoint[];
+  /**
+   * One entry per bucket in the reporting period, oldest first and including
+   * buckets with no activity. Length follows the period: 7 or 30 days, or 8
+   * weeks.
+   */
+  activitySeries: SeriesPoint[];
+  /** The reporting period against the one of equal length before it. */
   comparison: PeriodComparison;
   statusBreakdown: StatusBreakdown;
   /** Empty when nobody is currently quiet. */
@@ -266,12 +293,12 @@ export interface OverviewDefinitions {
 }
 
 /**
- * This 8-week period against the previous one.
+ * The reporting period against the one of equal length before it.
  *
  * Only covers things that happened at a point in time. There is deliberately no
  * comparison for `customersMonitored` or `activeFlags`: those describe how
- * things stand now, and nothing records how they stood eight weeks ago, so a
- * trend arrow beside them would be invented rather than measured.
+ * things stand now, and nothing records how they stood a period ago, so a trend
+ * arrow beside them would be invented rather than measured.
  *
  * A null change means the previous period had nothing to compare against —
  * render it as "no earlier data", never as 0% or +100%.

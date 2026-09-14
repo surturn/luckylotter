@@ -26,6 +26,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -157,6 +158,40 @@ class ApiSecurityAndContractTest extends AbstractWebTest {
         JsonNode items = json.readTree(body).get("items");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("flagId").asText()).isEqualTo(myFlag.getId().toString());
+    }
+
+    @Test
+    @DisplayName("the overview reports over the window it was asked for")
+    void overviewHonoursTheReportingWindow() throws Exception {
+        Business mine = business("Kaldi's");
+        admin(mine, "owner@kaldis.test");
+
+        String body = mvc.perform(get("/v1/stats/overview").param("window", "LAST_7_DAYS")
+                        .header("Authorization", "Bearer " + tokenFor("owner@kaldis.test")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode response = json.readTree(body);
+        assertThat(response.get("reportingPeriod").get("key").asText()).isEqualTo("LAST_7_DAYS");
+        assertThat(response.get("reportingPeriod").get("unit").asText()).isEqualTo("day");
+        // One point per bucket, so the caller never has to be told how many to
+        // expect from somewhere else.
+        assertThat(response.get("activitySeries")).hasSize(7);
+    }
+
+    @Test
+    @DisplayName("an unknown reporting window is a 400 that names the parameter")
+    void unknownReportingWindowIsABadRequest() throws Exception {
+        Business mine = business("Kaldi's");
+        admin(mine, "owner@kaldis.test");
+
+        // Not a 500, and not a silent fall back to the default. A dashboard that
+        // quietly answered a different period than the one asked for would show
+        // a number under the wrong heading, which is worse than showing none.
+        mvc.perform(get("/v1/stats/overview").param("window", "LAST_FORTNIGHT")
+                        .header("Authorization", "Bearer " + tokenFor("owner@kaldis.test")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(containsString("window")));
     }
 
     @Test

@@ -13,6 +13,7 @@ import {
   ImportResult,
   OverviewStats,
   PageResponse,
+  ReportingWindowKey,
   RetentionImpact,
   ScanSummary,
 } from './api.models';
@@ -101,9 +102,21 @@ export class ApiService {
     });
   }
 
-  /** Every counter behind the overview screen, aggregated server-side (FR-7). */
-  getOverview(): Observable<OverviewStats> {
-    return this.http.get<OverviewStats>('/v1/stats/overview');
+  /**
+   * Every counter behind the overview screen, aggregated server-side (FR-7).
+   *
+   * `window` bounds which events are counted. It is sent on the request rather
+   * than held as state anywhere, because it is a reporting choice: nothing it
+   * does survives the response, and it cannot reach the cadence model.
+   *
+   * Optional because a caller reading only the current-state counters — the flag
+   * list's totals, say — has no period to choose, and the ones it reads are the
+   * same on every setting.
+   */
+  getOverview(window: ReportingWindowKey = 'LAST_8_WEEKS'): Observable<OverviewStats> {
+    return this.http.get<OverviewStats>('/v1/stats/overview', {
+      params: new HttpParams().set('window', window),
+    });
   }
 
   /**

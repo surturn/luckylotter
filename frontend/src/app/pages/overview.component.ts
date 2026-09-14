@@ -1,9 +1,17 @@
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, LowerCasePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { OverviewStats, RetentionImpact } from '../core/api.models';
-import { WeeklyChartComponent } from '../shared/weekly-chart.component';
+import { OverviewStats, ReportingWindowKey, RetentionImpact } from '../core/api.models';
+import { ActivityChartComponent } from '../shared/activity-chart.component';
+
+/** The reporting periods on offer, in the order they are listed. */
+const WINDOWS: readonly { key: ReportingWindowKey; label: string }[] = [
+  { key: 'LAST_7_DAYS', label: 'Last 7 days' },
+  { key: 'LAST_30_DAYS', label: 'Last 30 days' },
+  { key: 'LAST_8_WEEKS', label: 'Last 8 weeks' },
+];
 
 /**
  * The landing screen after login (FR-7).
@@ -12,11 +20,19 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
  * request, one pass over the tables. Counting a paginated flag list on the
  * client would either count a single page or scan every page to produce an
  * integer.
+ *
+ * <p>The screen holds two kinds of figure and is at pains not to blur them. What
+ * happened over a period — flags raised, customers recovered, offers sent, the
+ * recovery rate — follows the reporting period selector. How things stand right
+ * now — who is drifting, who is worth calling — is derived from every customer's
+ * whole history, is the same on every setting, and carries no period label. The
+ * note under the selector says so, because an operator who thinks the selector
+ * changed who is drifting will stop trusting the flag list.
  */
 @Component({
   selector: 'app-overview',
   standalone: true,
-  imports: [RouterLink, DecimalPipe, WeeklyChartComponent],
+  imports: [RouterLink, DecimalPipe, LowerCasePipe, FormsModule, ActivityChartComponent],
   template: `
     <div class="head">
       <div>
@@ -25,8 +41,28 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           How many of your regulars are drifting, and how many came back after an offer.
         </p>
       </div>
-      <a routerLink="/flags" class="btn-secondary link-btn">See flagged customers</a>
+      <div class="head-actions">
+        <label class="period" for="period">
+          <span>Reporting period</span>
+          <select id="period" name="period"
+                  [ngModel]="window()" (ngModelChange)="onWindowChosen($event)"
+                  [disabled]="loading()">
+            @for (option of windows; track option.key) {
+              <option [value]="option.key">{{ option.label }}</option>
+            }
+          </select>
+        </label>
+        <a routerLink="/flags" class="btn-secondary link-btn">See flagged customers</a>
+      </div>
     </div>
+
+    <!-- The one thing a period selector can be mistaken for. Says plainly which
+         figures it moves and which it cannot, at the point of the control. -->
+    <p class="scope muted small">
+      This period applies to the activity figures below — offers, recoveries, the
+      chart. Who is drifting is always worked out from each customer's whole visit
+      history, so changing it never changes who is on your list.
+    </p>
 
     @if (loading()) {
       <div class="cards">
@@ -38,7 +74,7 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           </div>
         }
       </div>
-    } @else if (error()) {
+    } @else if (error() && !stats()) {
       <div class="banner banner-error" role="alert">
         <span>{{ error() }}</span>
         <button type="button" class="btn-secondary retry" (click)="load()">Try again</button>
@@ -47,6 +83,15 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
       <!-- Nested, not an else-if with an alias: Angular allows the "as" alias
            on a plain if only. -->
       @if (stats(); as data) {
+      <!-- A window that failed to load leaves the last one on screen rather
+           than emptying the dashboard: the numbers are stale, not wrong, and
+           saying which is more useful than saying nothing. -->
+      @if (error()) {
+        <div class="banner banner-warning" role="status">
+          <span>{{ error() }} The figures below are from the last period that loaded.</span>
+          <button type="button" class="btn-secondary retry" (click)="load()">Try again</button>
+        </div>
+      }
       <!-- The headline gets its own full-width row: the only number here that
            says whether any of this is working, and the one that needs room to
            carry its denominator. Sharing a row with the others left a hole in
@@ -56,13 +101,15 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           <span class="label">Came back after an offer</span>
           @if (data.recovery.percent === null) {
             <span class="value">—</span>
-            <span class="sub">No offer has reached a customer yet, so there's nothing to measure.</span>
+            <span class="sub">No offer reached a customer in
+              {{ data.reportingPeriod.label | lowercase }}, so there's nothing to measure.</span>
           } @else {
             <span class="value">{{ data.recovery.percent | number: '1.0-1' }}%</span>
             <span class="sub">
               {{ data.recovery.returned | number }} of
               {{ data.recovery.contacted | number }}
               {{ data.recovery.contacted === 1 ? 'customer' : 'customers' }} who received an offer
+              in {{ data.reportingPeriod.label | lowercase }}
               bought again within {{ data.recovery.windowDays }} days.
               <!-- Only claimed when the earlier period had enough offers to have
                    had a rate at all. A jump "from 0%" over two offers is a fact
@@ -72,7 +119,7 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
                 <span class="hero-delta">
                   {{ data.comparison.recoveryPercentChange! > 0 ? '↑' : '↓' }}
                   {{ abs(data.comparison.recoveryPercentChange!) | number: '1.0-1' }}
-                  points vs the previous 8 weeks.
+                  points vs {{ previousPeriod(data) }}.
                 </span>
               }
             </span>
@@ -133,21 +180,24 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           <span class="value">{{ data.offersSent | number }}</span>
           <!-- The only stat card with a trend line. "Monitored" and "currently
                drifting" are counts of how things stand right now; nothing
-               records how they stood eight weeks ago, so an arrow beside them
+               records how they stood a period ago, so an arrow beside them
                would be reconstructed rather than measured. -->
           @if (data.comparison.offersSentChangePercent !== null) {
             <span class="delta" [class.down]="data.comparison.offersSentChangePercent! < 0">
               {{ data.comparison.offersSentChangePercent! > 0 ? '↑' : '↓' }}
               {{ deltaText(data.comparison.offersSentChangePercent!,
                            data.comparison.offersSentBefore) }}
-              <span class="delta-note">vs previous 8 weeks</span>
+              <span class="delta-note">vs {{ previousPeriod(data) }}</span>
             </span>
           }
           <span class="sub">
+            <!-- Deliberately not "N more": this is a backlog right now, not part
+                 of the period count above, and "more" would invite the reader to
+                 add two numbers that measure different things. -->
             @if (data.offersNoContact > 0) {
-              {{ data.offersNoContact | number }} more are waiting on contact details.
+              Separately, {{ data.offersNoContact | number }} are waiting on contact details now.
             } @else {
-              Every offer generated so far had somewhere to go.
+              Nothing is stuck for want of contact details.
             }
           </span>
         </div>
@@ -166,10 +216,17 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           <section class="card impact">
             <div class="impact-head">
               <h2>Retention impact</h2>
-              <span class="muted small">All amounts in {{ money.currencyCode }}</span>
+              <span class="impact-scope">
+                <!-- Stated because the selector above does not reach here. A
+                     revenue figure that silently changed with a reporting window
+                     would read as the programme's worth having moved. -->
+                <span class="chip">All time</span>
+                <span class="muted small">Every offer ever delivered, in {{ money.currencyCode }}</span>
+              </span>
             </div>
             <p class="muted small" style="margin:0 0 var(--space-4)">
-              What the programme has been worth so far, over every offer ever delivered.
+              What the programme has been worth so far. The reporting period above doesn't
+              apply here — this is the running total since your first offer.
             </p>
 
             <div class="impact-grid">
@@ -299,11 +356,12 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
       </div>
 
       <section class="card chart-card">
-        <h2>The last 8 weeks</h2>
+        <h2>{{ data.reportingPeriod.label }}</h2>
         <p class="muted small" style="margin:4px 0 var(--space-4)">
-          Flags raised each week, against customers who came back after being flagged.
+          Flags raised each {{ data.reportingPeriod.unit }}, against customers who came back
+          after being flagged.
         </p>
-        <app-weekly-chart [points]="data.weeklySeries" />
+        <app-activity-chart [points]="data.activitySeries" [unit]="data.reportingPeriod.unit" />
       </section>
       }
     }
@@ -326,6 +384,46 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
       border-radius: var(--radius-sm);
       font-size: var(--text-base);
       font-weight: 500;
+    }
+    .head-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+    .period {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .period select {
+      min-height: var(--control-height);
+      padding: 0 var(--space-2);
+      font: inherit;
+      font-weight: 500;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+    }
+    /* Sits directly under the control it explains, so the scoping is read at the
+       moment the selector is used rather than discovered later. */
+    .scope {
+      max-width: 72ch;
+      margin: calc(var(--space-2) * -1) 0 var(--space-4);
+    }
+    .impact-scope { display: inline-flex; align-items: center; gap: var(--space-2); }
+    .chip {
+      padding: 2px var(--space-2);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-full);
+      font-size: var(--text-xs);
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--surface-sunken);
     }
     .hero { margin-bottom: var(--space-4); }
     .cards {
@@ -534,6 +632,15 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
 export class OverviewComponent {
   private readonly api = inject(ApiService);
 
+  readonly windows = WINDOWS;
+
+  /**
+   * The reporting period. Held here, sent on each request, and stored nowhere
+   * server-side: it is a way of reading the data, not a setting of the account,
+   * so it cannot outlive the screen or change what the model does.
+   */
+  readonly window = signal<ReportingWindowKey>('LAST_8_WEEKS');
+
   readonly stats = signal<OverviewStats | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -546,24 +653,49 @@ export class OverviewComponent {
   readonly impact = signal<RetentionImpact | null>(null);
   readonly impactError = signal(false);
 
+  /** Guards against a slow earlier window landing after a faster later one. */
+  private request = 0;
+
   constructor() {
+    this.load();
+    this.loadImpact();
+  }
+
+  onWindowChosen(key: ReportingWindowKey): void {
+    if (key === this.window()) {
+      return;
+    }
+    this.window.set(key);
     this.load();
   }
 
   load(): void {
-    this.loading.set(true);
+    const token = ++this.request;
+    // Skeletons only for the first load. A period change has numbers to show
+    // already, and blanking the page to replace them reads as a failure.
+    this.loading.set(this.stats() === null);
     this.error.set(null);
-    this.impactError.set(false);
-    this.api.getOverview().subscribe({
+
+    this.api.getOverview(this.window()).subscribe({
       next: (data) => {
+        if (token !== this.request) {
+          return;
+        }
         this.stats.set(data);
         this.loading.set(false);
       },
       error: () => {
+        if (token !== this.request) {
+          return;
+        }
         this.loading.set(false);
         this.error.set('Could not load your figures.');
       },
     });
+  }
+
+  loadImpact(): void {
+    this.impactError.set(false);
     this.api.getRetentionImpact().subscribe({
       next: (data) => this.impact.set(data),
       error: () => {
@@ -571,6 +703,16 @@ export class OverviewComponent {
         this.impactError.set(true);
       },
     });
+  }
+
+  /**
+   * How the comparison's other half is described in prose. Derived from the
+   * period rather than written into the template, because "vs previous 8 weeks"
+   * is a claim about what was measured and would otherwise survive a change to
+   * the selector as a lie.
+   */
+  previousPeriod(data: OverviewStats): string {
+    return `the previous ${data.reportingPeriod.label.replace('Last ', '')}`;
   }
 
   /** Direction is carried by the arrow; the number itself reads unsigned. */

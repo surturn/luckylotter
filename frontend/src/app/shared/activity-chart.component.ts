@@ -1,29 +1,37 @@
 import { DatePipe } from '@angular/common';
-import { Component, Input, computed, signal } from '@angular/core';
-import { WeeklyPoint } from '../core/api.models';
+import { Component, Input, computed, inject, signal } from '@angular/core';
+import { SeriesPoint } from '../core/api.models';
 
 interface Bar {
-  point: WeeklyPoint;
+  point: SeriesPoint;
   x: number;
   raisedY: number;
   raisedHeight: number;
   recoveredY: number;
   recoveredHeight: number;
   labelX: number;
+  /** False where the axis label is thinned out to stop the ticks colliding. */
+  showLabel: boolean;
 }
 
 /**
- * Flags raised against customers recovered, by week.
+ * Flags raised against customers recovered, over the reporting period.
  *
- * <p>Hand-rolled SVG rather than a charting library: two series over eight
- * points doesn't justify the bundle, and the axis rules here (always eight
- * columns, zero-height bars still occupying their slot) are exactly the ones a
- * general-purpose library would want to optimise away.
+ * <p>Hand-rolled SVG rather than a charting library: two series over at most
+ * thirty points doesn't justify the bundle, and the axis rules here (every
+ * bucket always occupying its slot, zero-height bars still drawn) are exactly
+ * the ones a general-purpose library would want to optimise away.
+ *
+ * <p>The bucket is a day or a week depending on the reporting period, so the
+ * column width and the axis tick rate are both derived from the point count
+ * rather than fixed. A fixed bar width would silently overlap its neighbours the
+ * moment the series grew past the eight weeks it was written for.
  */
 @Component({
-  selector: 'app-weekly-chart',
+  selector: 'app-activity-chart',
   standalone: true,
   imports: [DatePipe],
+  providers: [DatePipe],
   template: `
     <figure>
       <figcaption class="legend">
@@ -44,17 +52,18 @@ interface Bar {
           </g>
         }
 
-        @for (bar of bars(); track bar.point.weekStart) {
+        @for (bar of bars(); track bar.point.bucketStart) {
           <g>
             <rect [attr.x]="bar.x" [attr.y]="bar.raisedY"
-                  [attr.width]="barWidth" [attr.height]="bar.raisedHeight"
+                  [attr.width]="barWidth()" [attr.height]="bar.raisedHeight"
                   rx="2" class="bar-raised" />
-            <rect [attr.x]="bar.x + barWidth + barGap" [attr.y]="bar.recoveredY"
-                  [attr.width]="barWidth" [attr.height]="bar.recoveredHeight"
+            <rect [attr.x]="bar.x + barWidth() + barGap" [attr.y]="bar.recoveredY"
+                  [attr.width]="barWidth()" [attr.height]="bar.recoveredHeight"
                   rx="2" class="bar-recovered" />
-            <text [attr.x]="bar.labelX" [attr.y]="height - 8" class="axis-label" text-anchor="middle">
-              {{ bar.point.weekStart | date: 'd MMM' }}
-            </text>
+            @if (bar.showLabel) {
+              <text [attr.x]="bar.labelX" [attr.y]="height - 8" class="axis-label"
+                    text-anchor="middle">{{ bar.point.bucketStart | date: 'd MMM' }}</text>
+            }
             <title>{{ tooltip(bar.point) }}</title>
           </g>
         }
@@ -90,12 +99,20 @@ interface Bar {
     .axis-label.numeric { text-anchor: end; }
   `],
 })
-export class WeeklyChartComponent {
-  @Input({ required: true }) set points(value: WeeklyPoint[]) {
+export class ActivityChartComponent {
+  private readonly datePipe = inject(DatePipe);
+
+  @Input({ required: true }) set points(value: SeriesPoint[]) {
     this.series.set(value ?? []);
   }
 
-  protected readonly series = signal<WeeklyPoint[]>([]);
+  /** What one point covers, for the axis labels and the text alternative. */
+  @Input() set unit(value: 'day' | 'week') {
+    this.bucketUnit.set(value ?? 'week');
+  }
+
+  protected readonly series = signal<SeriesPoint[]>([]);
+  protected readonly bucketUnit = signal<'day' | 'week'>('week');
 
   /**
    * Wide viewBox on purpose. The SVG scales to its container width, so a
@@ -108,8 +125,22 @@ export class WeeklyChartComponent {
   protected readonly padRight = 8;
   protected readonly padTop = 14;
   protected readonly plotBottom = 224;
-  protected readonly barWidth = 22;
+  private readonly maxBarWidth = 22;
   protected readonly barGap = 5;
+
+  /**
+   * A third of the slot per bar, capped at the width eight weekly columns had.
+   * Three parts to a slot — two bars and a gap — is what keeps a thirty-column
+   * series legible instead of a smear.
+   */
+  protected readonly barWidth = computed(() => {
+    const count = this.series().length;
+    if (count === 0) {
+      return this.maxBarWidth;
+    }
+    const slot = (this.width - this.padLeft - this.padRight) / count;
+    return Math.min(this.maxBarWidth, Math.max(2, slot / 3));
+  });
 
   /** Headroom so the tallest bar doesn't touch the top gridline. */
   private readonly peak = computed(() => {
@@ -136,9 +167,13 @@ export class WeeklyChartComponent {
     if (points.length === 0) {
       return [];
     }
+    const barWidth = this.barWidth();
     const plotWidth = this.width - this.padLeft - this.padRight;
     const slot = plotWidth / points.length;
-    const pairWidth = this.barWidth * 2 + this.barGap;
+    const pairWidth = barWidth * 2 + this.barGap;
+    // Thirty "14 Sep" ticks under one axis is a grey band, not a scale. Every
+    // nth label keeps enough of them to read a date off any bar's neighbour.
+    const every = Math.max(1, Math.ceil(points.length / 8));
 
     return points.map((point, index) => {
       const x = this.padLeft + slot * index + (slot - pairWidth) / 2;
@@ -150,6 +185,7 @@ export class WeeklyChartComponent {
         recoveredY: this.yFor(point.customersRecovered),
         recoveredHeight: this.plotBottom - this.yFor(point.customersRecovered),
         labelX: x + pairWidth / 2,
+        showLabel: index % every === 0,
       };
     });
   });
@@ -159,11 +195,18 @@ export class WeeklyChartComponent {
     const points = this.series();
     const raised = points.reduce((total, point) => total + point.flagsRaised, 0);
     const recovered = points.reduce((total, point) => total + point.customersRecovered, 0);
-    return `Bar chart of the last ${points.length} weeks: ${raised} flags raised, ${recovered} customers came back.`;
+    const unit = this.bucketUnit();
+    const span = points.length === 1 ? `1 ${unit}` : `${points.length} ${unit}s`;
+    return `Bar chart of the last ${span}: ${raised} flags raised, `
+      + `${recovered} customers came back.`;
   });
 
-  protected tooltip(point: WeeklyPoint): string {
-    return `Week of ${point.weekStart}: ${point.flagsRaised} flagged, ${point.customersRecovered} came back`;
+  protected tooltip(point: SeriesPoint): string {
+    // The same pipe the axis uses, provided at component level so the wording of
+    // a date is decided in one place rather than two.
+    const date = this.datePipe.transform(point.bucketStart, 'd MMM yyyy');
+    const label = this.bucketUnit() === 'day' ? date : `Week of ${date}`;
+    return `${label}: ${point.flagsRaised} flagged, ${point.customersRecovered} came back`;
   }
 
   private yFor(value: number): number {

@@ -228,27 +228,32 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
                                        @Param("offset") int offset);
 
     /**
-     * Flags opened per week, for the overview chart (FR-7).
+     * Flags opened per day, for the overview chart (FR-7).
      *
      * <p>Native because {@code date_trunc} has no JPQL equivalent, and grouping
      * in the database beats shipping every flag to the JVM to be counted.
-     * {@code AT TIME ZONE 'UTC'} pins the week boundary so the buckets don't
+     * {@code AT TIME ZONE 'UTC'} pins the day boundary so the buckets don't
      * shift with the database session's timezone.
      *
-     * <p>Weeks with no activity are simply absent from the result — the service
-     * fills them, because a chart that omits quiet weeks compresses time and
-     * misreports the trend.
+     * <p>Days, not weeks, even though the default reporting window draws weeks:
+     * a day is the finest bucket any window asks for, and rolling days up in the
+     * service costs one query per metric instead of one per metric per
+     * granularity.
+     *
+     * <p>Buckets with no activity are simply absent from the result — the
+     * service fills them, because a chart that omits quiet days compresses time
+     * and misreports the trend.
      */
     @Query(value = """
-        SELECT date_trunc('week', flagged_at AT TIME ZONE 'UTC') AS "weekStart",
+        SELECT date_trunc('day', flagged_at AT TIME ZONE 'UTC') AS "bucketStart",
                COUNT(*) AS "total"
         FROM retention_flags
         WHERE business_id = :businessId
           AND flagged_at >= :from
         GROUP BY 1
         """, nativeQuery = true)
-    List<WeeklyCount> countFlagsRaisedByWeek(@Param("businessId") UUID businessId,
-                                             @Param("from") Instant from);
+    List<TimeBucketCount> countFlagsRaisedByDay(@Param("businessId") UUID businessId,
+                                                @Param("from") Instant from);
 
     /**
      * Flags raised inside a window — the current or the preceding period, for
@@ -297,8 +302,9 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
         """, nativeQuery = true)
     List<BucketCount> countActiveFlagsByOverdueBucket(@Param("businessId") UUID businessId);
 
-    /** As {@link #countFlagsRaisedByWeek}, but by the week the customer returned (FR-9). */    @Query(value = """
-        SELECT date_trunc('week', resolved_at AT TIME ZONE 'UTC') AS "weekStart",
+    /** As {@link #countFlagsRaisedByDay}, but by the day the customer returned (FR-9). */
+    @Query(value = """
+        SELECT date_trunc('day', resolved_at AT TIME ZONE 'UTC') AS "bucketStart",
                COUNT(*) AS "total"
         FROM retention_flags
         WHERE business_id = :businessId
@@ -306,8 +312,8 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
           AND resolved_at >= :from
         GROUP BY 1
         """, nativeQuery = true)
-    List<WeeklyCount> countCustomersRecoveredByWeek(@Param("businessId") UUID businessId,
-                                                    @Param("from") Instant from);
+    List<TimeBucketCount> countCustomersRecoveredByDay(@Param("businessId") UUID businessId,
+                                                       @Param("from") Instant from);
 
     /**
      * Flags nobody was ever reached about — the offer exists but never left the
@@ -319,6 +325,12 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
      * more incomplete the business's customer data is — which is the opposite of
      * what the figure is for. Shown next to the rate, it says how much of the
      * opportunity the business could not even attempt.
+     *
+     * <p>Bounded on when the offer was <em>created</em> — when the attempt was
+     * made — rather than on {@code sent_at}, since there is no {@code sent_at} on
+     * an offer that never left. Bounding it on anything else would put the figure
+     * beside a rate measured over a different set of rows, and a reader has no
+     * way to tell that from the outside.
      */
     @Query(value = """
         SELECT COUNT(*)
@@ -326,8 +338,10 @@ public interface RetentionFlagRepository extends JpaRepository<RetentionFlag, UU
         JOIN offers o ON o.flag_id = f.id
         WHERE f.business_id = :businessId
           AND o.status <> 'SENT'
+          AND o.created_at >= :from
         """, nativeQuery = true)
-    long countFlagsWithoutDeliveredOffer(@Param("businessId") UUID businessId);
+    long countFlagsWithoutDeliveredOfferSince(@Param("businessId") UUID businessId,
+                                              @Param("from") Instant from);
 
     /**
      * Every counter behind the retention-impact section, over the offers sent in

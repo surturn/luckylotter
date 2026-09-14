@@ -8,7 +8,7 @@ import java.math.BigDecimal;
  * <p>An interface projection rather than a record because the query is native:
  * Spring Data can bind a native result to an interface, but a record would need
  * a {@code @SqlResultSetMapping} to be constructed at all. The same shape as
- * {@link WeeklyCount} and {@link BucketCount}, for the same reason.
+ * {@link TimeBucketCount} and {@link BucketCount}, for the same reason.
  *
  * <p>Everything the dashboard claims about money is derived from this one query,
  * so the count of returns and the revenue attributed to those returns come from

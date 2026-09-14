@@ -5,13 +5,14 @@ import com.lucklotter.domain.OfferStatus;
 import com.lucklotter.repo.CustomerRepository;
 import com.lucklotter.repo.OfferRepository;
 import com.lucklotter.repo.RetentionFlagRepository;
-import com.lucklotter.repo.WeeklyCount;
+import com.lucklotter.repo.TimeBucketCount;
 import com.lucklotter.web.dto.OverviewStatsResponse;
 import com.lucklotter.web.dto.OverviewStatsResponse.Definitions;
 import com.lucklotter.web.dto.OverviewStatsResponse.PeriodComparison;
 import com.lucklotter.web.dto.OverviewStatsResponse.Recovery;
+import com.lucklotter.web.dto.OverviewStatsResponse.ReportingPeriod;
+import com.lucklotter.web.dto.OverviewStatsResponse.SeriesPoint;
 import com.lucklotter.web.dto.OverviewStatsResponse.StatusBreakdown;
-import com.lucklotter.web.dto.OverviewStatsResponse.WeeklyPoint;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,14 +28,22 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-/** Aggregates for the overview screen (FR-7), scoped to one business (NFR-1). */
+/**
+ * Aggregates for the overview screen (FR-7), scoped to one business (NFR-1).
+ *
+ * <p>Split down the middle by what a reporting window can honestly move. The
+ * counts that describe how things stand — customers monitored, who is drifting,
+ * the status breakdown, the severity spread — come from every customer's
+ * complete history and are identical whichever window is asked for; a period
+ * label or a trend arrow beside them would claim a comparison the database
+ * never stored. The figures that describe what happened — flags raised,
+ * customers recovered, offers sent, the recovery rate — are events carrying a
+ * timestamp, and are reported strictly inside the window. See
+ * {@link ReportingWindow} for why the selector never reaches the model.
+ */
 @Service
 public class OverviewStatsService {
-
-    /** Eight weeks including the current, partial one. */
-    static final int WEEKS = 8;
 
     /**
      * How far above the average customer a drifting customer has to be worth to
@@ -59,8 +68,14 @@ public class OverviewStatsService {
         this.retentionImpact = retentionImpact;
     }
 
+    /** The dashboard's own default period, for callers with no selector in front of them. */
     @Transactional(readOnly = true)
     public OverviewStatsResponse forBusiness(UUID businessId) {
+        return forBusiness(businessId, ReportingWindow.DEFAULT);
+    }
+
+    @Transactional(readOnly = true)
+    public OverviewStatsResponse forBusiness(UUID businessId, ReportingWindow window) {
         Instant now = Instant.now();
 
         long monitored = customers.countByBusinessIdAndAvgIntervalDaysIsNotNull(businessId);
@@ -83,39 +98,65 @@ public class OverviewStatsService {
                 belowThreshold,
                 active,
                 resolved,
-                offers.countByBusinessIdAndStatus(businessId, OfferStatus.SENT),
+                // Offers sent is an event with a timestamp, so it belongs to the
+                // period — and it has to, because the trend arrow beside it is
+                // computed over exactly these rows. An all-time headline under a
+                // period arrow invites the reader to compare two things that
+                // aren't comparable.
+                offers.countByBusinessIdAndSentAtGreaterThanEqualAndSentAtLessThan(
+                        businessId, windowStart(now, window), now),
+                // Waiting on contact details is a backlog, not an event: how many
+                // are stuck right now. Deliberately unwindowed, and the sub-line
+                // on the card says "waiting" rather than counting the period.
                 offers.countByBusinessIdAndStatus(businessId, OfferStatus.NO_CONTACT),
-                recovery(businessId, now),
-                weeklySeries(businessId),
-                comparison(businessId, now),
+                reportingPeriod(window),
+                recovery(businessId, now, window),
+                activitySeries(businessId, window),
+                comparison(businessId, now, window),
                 new StatusBreakdown(active, returned, onRhythm, belowThreshold, total),
                 overdueBuckets(businessId),
                 flags.countHighValueActiveFlags(businessId, HIGH_VALUE_MULTIPLE),
                 definitions());
     }
 
-    private Recovery recovery(UUID businessId, Instant now) {
-        RecoveryCohort cohort = retentionImpact.cohort(businessId, Instant.EPOCH, now);
+    private static ReportingPeriod reportingPeriod(ReportingWindow window) {
+        return new ReportingPeriod(
+                window.name(),
+                window.label(),
+                window.days(),
+                window.bucket() == ChronoUnit.WEEKS ? "week" : "day");
+    }
+
+    private Recovery recovery(UUID businessId, Instant now, ReportingWindow window) {
+        Instant from = windowStart(now, window);
+        RecoveryCohort cohort = retentionImpact.cohort(businessId, from, now);
         return new Recovery(
                 cohort.contacted(),
                 cohort.returned(),
                 cohort.windowDays(),
                 cohort.percent(),
-                flags.countFlagsWithoutDeliveredOffer(businessId));
+                // Same period as the rate beside it. An all-time figure sitting
+                // under a windowed percentage reads as part of the same claim.
+                flags.countFlagsWithoutDeliveredOfferSince(businessId, from));
+    }
+
+    private static Instant windowStart(Instant now, ReportingWindow window) {
+        return now.minus(window.days(), ChronoUnit.DAYS);
     }
 
     /**
-     * This eight-week period against the one immediately before it.
+     * The reporting period against the one immediately before it, of equal
+     * length so the two sides are comparable whatever the selector says.
      *
      * <p>Restricted to metrics that are events with a timestamp. "Customers
      * monitored" and "currently quiet" are deliberately absent: they describe
-     * how things stand now, and nothing in the schema records how they stood
-     * eight weeks ago, so any arrow next to them would be reconstructed rather
-     * than measured.
+     * how things stand now, and nothing in the schema records how they stood a
+     * period ago, so any arrow next to them would be reconstructed rather than
+     * measured.
      */
-    private PeriodComparison comparison(UUID businessId, Instant now) {
-        Instant currentFrom = now.minus(WEEKS * 7L, ChronoUnit.DAYS);
-        Instant previousFrom = currentFrom.minus(WEEKS * 7L, ChronoUnit.DAYS);
+    private PeriodComparison comparison(UUID businessId, Instant now, ReportingWindow window) {
+        Instant currentFrom = windowStart(now, window);
+        Instant previousFrom = currentFrom.minus(window.days(), ChronoUnit.DAYS);
 
         long raisedNow = flags.countByBusinessIdAndFlaggedAtGreaterThanEqualAndFlaggedAtLessThan(
                 businessId, currentFrom, now);
@@ -170,37 +211,59 @@ public class OverviewStatsService {
     }
 
     /**
-     * Eight weeks, oldest first, **including weeks where nothing happened**.
+     * Activity across the reporting period, oldest first, **including buckets
+     * where nothing happened**.
      *
-     * <p>The zero-filling is the point: the queries return only weeks with
-     * rows, and rendering those directly would close the gaps and draw a quiet
+     * <p>The zero-filling is the point: the queries return only days with rows,
+     * and rendering those directly would close the gaps and draw a quiet
      * fortnight as though it were continuous activity.
+     *
+     * <p>The division follows the window rather than being fixed. A week is a
+     * useful cut of eight weeks and a useless one of seven days, where it would
+     * collapse the chart to a single bar. The current week is partial and drawn
+     * as such — dropping it would hide the week the operator is standing in, and
+     * scaling it up to a full week would invent activity.
      */
-    private List<WeeklyPoint> weeklySeries(UUID businessId) {
-        LocalDate currentWeekStart = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        LocalDate firstWeekStart = currentWeekStart.minusWeeks(WEEKS - 1L);
-        Instant from = firstWeekStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+    private List<SeriesPoint> activitySeries(UUID businessId, ReportingWindow window) {
+        boolean weekly = window.bucket() == ChronoUnit.WEEKS;
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        int buckets = weekly ? window.days() / 7 : window.days();
+        LocalDate lastBucketStart = weekly ? today.with(DayOfWeek.MONDAY) : today;
+        LocalDate firstBucketStart = weekly
+                ? lastBucketStart.minusWeeks(buckets - 1L)
+                : lastBucketStart.minusDays(buckets - 1L);
 
-        Map<LocalDate, Long> raised = byWeek(flags.countFlagsRaisedByWeek(businessId, from));
-        Map<LocalDate, Long> recovered = byWeek(flags.countCustomersRecoveredByWeek(businessId, from));
+        Instant from = firstBucketStart.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Map<LocalDate, Long> raised = byBucket(flags.countFlagsRaisedByDay(businessId, from), weekly);
+        Map<LocalDate, Long> recovered =
+                byBucket(flags.countCustomersRecoveredByDay(businessId, from), weekly);
 
-        List<WeeklyPoint> series = new ArrayList<>(WEEKS);
-        for (int week = 0; week < WEEKS; week++) {
-            LocalDate weekStart = firstWeekStart.plusWeeks(week);
-            series.add(new WeeklyPoint(
-                    weekStart,
-                    raised.getOrDefault(weekStart, 0L),
-                    recovered.getOrDefault(weekStart, 0L)));
+        List<SeriesPoint> series = new ArrayList<>(buckets);
+        for (int index = 0; index < buckets; index++) {
+            LocalDate bucketStart = weekly
+                    ? firstBucketStart.plusWeeks(index)
+                    : firstBucketStart.plusDays(index);
+            series.add(new SeriesPoint(
+                    bucketStart,
+                    raised.getOrDefault(bucketStart, 0L),
+                    recovered.getOrDefault(bucketStart, 0L)));
         }
         return series;
     }
 
-    private static Map<LocalDate, Long> byWeek(List<WeeklyCount> rows) {
-        return rows.stream().collect(Collectors.toMap(
-                row -> row.getWeekStart().toLocalDate(),
-                WeeklyCount::getTotal,
-                Long::sum,
-                HashMap::new));
+    /**
+     * Rolls day rows up into the bucket the window draws, summing what lands in
+     * each. A day at UTC midnight falls into exactly the Monday that truncating
+     * to the week would have produced, so the two agree rather than merely
+     * resembling each other.
+     */
+    private static Map<LocalDate, Long> byBucket(List<TimeBucketCount> rows, boolean weekly) {
+        Map<LocalDate, Long> totals = new HashMap<>();
+        for (TimeBucketCount row : rows) {
+            LocalDate day = row.getBucketStart().toLocalDate();
+            totals.merge(weekly ? day.with(DayOfWeek.MONDAY) : day, row.getTotal(), Long::sum);
+        }
+        return totals;
     }
 
     /**

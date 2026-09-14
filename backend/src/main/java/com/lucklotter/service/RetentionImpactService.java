@@ -84,7 +84,9 @@ public class RetentionImpactService {
                         ? null
                         : revenue.divide(BigDecimal.valueOf(raw.getReturned()), 2, RoundingMode.HALF_UP),
                 raw.getFreeItemOffers(),
-                flags.countFlagsWithoutDeliveredOffer(businessId),
+                // Epoch, because this section totals the whole programme rather
+                // than a period — see the note on the response's own window.
+                flags.countFlagsWithoutDeliveredOfferSince(businessId, Instant.EPOCH),
                 definitions(windowDays, raw.getFreeItemOffers() > 0));
     }
 
