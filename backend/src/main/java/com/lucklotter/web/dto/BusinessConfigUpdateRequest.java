@@ -6,6 +6,8 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
@@ -52,6 +54,20 @@ public record BusinessConfigUpdateRequest(
     @Min(value = 1, message = "offerBudgetWindowDays must be at least 1")
     @Max(value = 365)
     Integer offerBudgetWindowDays,
+
+    @NotNull(message = "recoveryWindowDays is required")
+    @Min(value = 1, message = "recoveryWindowDays must be at least 1")
+    @Max(value = 365)
+    Integer recoveryWindowDays,
+
+    @NotNull(message = "currencyCode is required")
+    @Pattern(regexp = "^[A-Z]{3}$",
+            message = "currencyCode must be a three-letter uppercase ISO 4217 code")
+    String currencyCode,
+
+    @NotNull(message = "timezone is required")
+    @Size(max = 64)
+    String timezone,
 
     @NotNull(message = "defaultDealType is required")
     DealType defaultDealType,

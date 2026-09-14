@@ -48,6 +48,11 @@ export interface BusinessConfig {
   offerCooldownMultiplier: number;
   offerCapPerWindow: number;
   offerBudgetWindowDays: number;
+  /** Days after a delivered offer in which a purchase still counts as a return. */
+  recoveryWindowDays: number;
+  /** ISO 4217 code every amount is denominated in. Never converted. */
+  currencyCode: string;
+  timezone: string;
   defaultDealType: DealType;
   defaultDealValue: number;
   /** Read-only: a fixed system constant, not per-business config (FR-2). */
@@ -62,6 +67,9 @@ export interface BusinessConfigUpdate {
   offerCooldownMultiplier: number;
   offerCapPerWindow: number;
   offerBudgetWindowDays: number;
+  recoveryWindowDays: number;
+  currencyCode: string;
+  timezone: string;
   defaultDealType: DealType;
   defaultDealValue: number;
 }
@@ -119,15 +127,52 @@ export interface PageResponse<T> {
 }
 
 /**
- * Recovery carries its own denominator: "100%" over two flags and "68%" over
+ * Recovery carries its own denominator: "100%" over two offers and "68%" over
  * four hundred are different claims, and the card shows which one it is.
- * `percent` is null when there are no flags at all — no rate yet, which is not
- * a rate of zero.
+ *
+ * The denominator is offers that were *delivered*, not flags raised. A flag
+ * whose offer never reached the customer is not an attempt that failed, so it is
+ * counted separately in `neverContacted` rather than folded into the rate.
+ *
+ * `percent` is null when nothing has been contacted yet — no rate yet, which is
+ * not a rate of zero.
  */
-export interface RecoveryRate {
-  recovered: number;
-  totalFlags: number;
+export interface Recovery {
+  contacted: number;
+  returned: number;
+  windowDays: number;
   percent: number | null;
+  neverContacted: number;
+}
+
+/**
+ * A financial figure and the sentence that says what it is made of.
+ *
+ * The definitions travel with the numbers rather than living in documentation:
+ * a recovery rate whose denominator only its author knows is one nobody can
+ * defend in a meeting.
+ */
+export interface RetentionImpact {
+  currencyCode: string;
+  recoveryWindowDays: number;
+  contacted: number;
+  returned: number;
+  recoveryPercent: number | null;
+  revenueFromReturnedCustomers: number;
+  /** Null when any delivered offer was a free item — its cost is unknowable. */
+  interventionCost: number | null;
+  /** Null whenever the cost is unknown; a net figure on a partial cost flatters itself. */
+  netValue: number | null;
+  averageRecoveredCustomerValue: number | null;
+  freeItemOffers: number;
+  flaggedNeverContacted: number;
+  definitions: {
+    contacted: string;
+    returned: string;
+    revenueFromReturnedCustomers: string;
+    interventionCost: string;
+    netValue: string;
+  };
 }
 
 export interface WeeklyPoint {
@@ -137,19 +182,32 @@ export interface WeeklyPoint {
 }
 
 export interface OverviewStats {
+  customersTotal: number;
   customersMonitored: number;
   customersBelowThreshold: number;
   activeFlags: number;
   resolvedFlags: number;
   offersSent: number;
   offersNoContact: number;
-  recoveryRate: RecoveryRate;
+  recovery: Recovery;
   /** Always 8 entries, oldest first, including weeks with no activity. */
   weeklySeries: WeeklyPoint[];
   comparison: PeriodComparison;
   statusBreakdown: StatusBreakdown;
   /** Empty when nobody is currently quiet. */
   overdueBuckets: OverdueBucket[];
+  /** Drifting customers worth at least twice the average customer. */
+  highValueDrifting: number;
+  definitions: OverviewDefinitions;
+}
+
+/** Plain-language versions of the cards above, rendered beside them. */
+export interface OverviewDefinitions {
+  customersMonitored: string;
+  customersBelowThreshold: string;
+  recovery: string;
+  statusBreakdown: string;
+  highValueDrifting: string;
 }
 
 /**
@@ -178,10 +236,19 @@ export interface PeriodComparison {
   recoveryPercentChange: number | null;
 }
 
+/**
+ * The customer base, split four ways.
+ *
+ * A partition, not a selection: the four buckets are disjoint and add up to
+ * `total`. A customer who returned and has since gone quiet counts as `drifting`
+ * — both statements are true, and only one of them says what to do today.
+ */
 export interface StatusBreakdown {
-  cameBack: number;
-  stillQuiet: number;
+  drifting: number;
+  returned: number;
+  onRhythm: number;
   notEnoughData: number;
+  total: number;
 }
 
 /**

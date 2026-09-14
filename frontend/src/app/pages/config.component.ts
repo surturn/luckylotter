@@ -155,6 +155,52 @@ import { ToastService } from '../shared/toast.service';
         </section>
 
         <section class="card block">
+          <span class="chip chip-measure" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><path d="M3 12.5 7 8.5l3 3 6.5-7"/><path d="M3 16.5h14"/></svg>
+          </span>
+          <h2>Measuring, and money</h2>
+          <p class="hint" style="margin-bottom:var(--space-4)">
+            How long after an offer a purchase still counts as coming back, and the currency and
+            timezone every figure on the dashboard is stated in.
+          </p>
+
+          <div class="field">
+            <label for="recoveryWindow">Count a purchase as coming back if within</label>
+            <input id="recoveryWindow" type="number" min="1" max="365"
+                   formControlName="recoveryWindowDays" />
+            <p class="hint">
+              days of the offer being delivered.
+              <strong>{{ recoveryExample() }}</strong>
+            </p>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="currency">Currency</label>
+              <input id="currency" type="text" maxlength="3" placeholder="USD"
+                     style="text-transform:uppercase" formControlName="currencyCode"
+                     [class.invalid]="invalid('currencyCode')" />
+              @if (invalid('currencyCode')) {
+                <p class="error-text">Three letters, e.g. KES or USD.</p>
+              } @else {
+                <p class="hint">3-letter code, e.g. KES</p>
+              }
+            </div>
+            <div class="field">
+              <label for="timezone">Timezone</label>
+              <input id="timezone" type="text" maxlength="64" placeholder="Africa/Nairobi"
+                     formControlName="timezone" />
+              <p class="hint">e.g. Africa/Nairobi</p>
+            </div>
+          </div>
+
+          <p class="hint">
+            Amounts are never converted — whatever your import said is what's shown. The currency
+            code only labels them.
+          </p>
+        </section>
+
+        <section class="card block">
           <span class="chip chip-offer" aria-hidden="true">
             <svg viewBox="0 0 20 20"><rect x="3" y="8" width="14" height="9" rx="1.5"/><path d="M2.5 8h15M10 8v9M10 8S8.5 4 6.75 4a2 2 0 1 0 0 4M10 8s1.5-4 3.25-4a2 2 0 1 1 0 4"/></svg>
           </span>
@@ -221,6 +267,7 @@ import { ToastService } from '../shared/toast.service';
     .chip-when { background: var(--primary-50); color: var(--primary-600); }
     .chip-who { background: var(--success-50); color: var(--success-600); }
     .chip-total { background: var(--primary-100); color: var(--primary-700); }
+    .chip-measure { background: var(--success-50); color: var(--success-600); }
     .chip-offer { background: var(--warning-50); color: var(--warning-600); }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   `],
@@ -248,6 +295,12 @@ export class ConfigComponent {
     offerCooldownMultiplier: [3, [Validators.required, Validators.min(0), Validators.max(20)]],
     offerCapPerWindow: [100, [Validators.required, Validators.min(0), Validators.max(1000000)]],
     offerBudgetWindowDays: [30, [Validators.required, Validators.min(1), Validators.max(365)]],
+    recoveryWindowDays: [14, [Validators.required, Validators.min(1), Validators.max(365)]],
+    // Case-insensitive here, uppercased on submit: the CSS that displays this
+    // field in caps is cosmetic, and the value underneath stays as typed. The
+    // backend wants ISO 4217, so the conversion happens once, on the way out.
+    currencyCode: ['USD', [Validators.required, Validators.pattern(/^[A-Za-z]{3}$/)]],
+    timezone: ['UTC', [Validators.required, Validators.maxLength(64)]],
     defaultDealType: ['PERCENT_OFF' as BusinessConfig['defaultDealType'], Validators.required],
     defaultDealValue: [25, [Validators.required, Validators.min(0.01)]],
   });
@@ -357,7 +410,24 @@ export class ConfigComponent {
     return Number(minThresholdDays) > Number(maxThresholdDays);
   }
 
-  invalid(control: 'defaultDealValue'): boolean {
+  /**
+   * The window worked through the same 7-day customer, so the three timings on
+   * this screen can be read against each other: flag after ~11 quiet days, wait
+   * 30 before another offer, and credit a return for this many days after it.
+   */
+  recoveryExample(): string {
+    const days = Number(this.form.getRawValue().recoveryWindowDays);
+    if (days <= 7) {
+      return `A short window — only a quick return counts, which understates how many came back.`;
+    }
+    if (days >= 60) {
+      return `A long window — someone who was going to return anyway may be counted as
+              brought back by the offer.`;
+    }
+    return `A customer who buys within ${days} days of the offer counts as having come back.`;
+  }
+
+  invalid(control: 'defaultDealValue' | 'currencyCode'): boolean {
     const field = this.form.controls[control];
     return field.invalid && field.touched;
   }
@@ -379,6 +449,9 @@ export class ConfigComponent {
       offerCooldownMultiplier: Number(value.offerCooldownMultiplier),
       offerCapPerWindow: Number(value.offerCapPerWindow),
       offerBudgetWindowDays: Number(value.offerBudgetWindowDays),
+      recoveryWindowDays: Number(value.recoveryWindowDays),
+      currencyCode: value.currencyCode.trim().toUpperCase(),
+      timezone: value.timezone.trim(),
       defaultDealType: value.defaultDealType,
       defaultDealValue: Number(value.defaultDealValue),
     }).subscribe({

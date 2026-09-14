@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-import { OverviewStats } from '../core/api.models';
+import { OverviewStats, RetentionImpact } from '../core/api.models';
 import { WeeklyChartComponent } from '../shared/weekly-chart.component';
 
 /**
@@ -54,20 +54,21 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
       <div class="hero">
         <div class="card stat stat-primary">
           <span class="label">Came back after an offer</span>
-          @if (data.recoveryRate.percent === null) {
+          @if (data.recovery.percent === null) {
             <span class="value">—</span>
-            <span class="sub">No customers have been flagged yet, so there's nothing to measure.</span>
+            <span class="sub">No offer has reached a customer yet, so there's nothing to measure.</span>
           } @else {
-            <span class="value">{{ data.recoveryRate.percent | number: '1.0-1' }}%</span>
+            <span class="value">{{ data.recovery.percent | number: '1.0-1' }}%</span>
             <span class="sub">
-              {{ data.recoveryRate.recovered | number }} of
-              {{ data.recoveryRate.totalFlags | number }}
-              flagged {{ data.recoveryRate.totalFlags === 1 ? 'customer' : 'customers' }} visited again.
-              <!-- Only claimed when the earlier period had enough flags to have
-                   had a rate at all. A jump "from 0%" over two flags is a fact
+              {{ data.recovery.returned | number }} of
+              {{ data.recovery.contacted | number }}
+              {{ data.recovery.contacted === 1 ? 'customer' : 'customers' }} who received an offer
+              bought again within {{ data.recovery.windowDays }} days.
+              <!-- Only claimed when the earlier period had enough offers to have
+                   had a rate at all. A jump "from 0%" over two offers is a fact
                    about the sample size, not about retention. -->
               @if (data.comparison.recoveryPercentChange !== null
-                    && data.comparison.flagsRaisedBefore >= 5) {
+                    && data.comparison.offersSentBefore >= 5) {
                 <span class="hero-delta">
                   {{ data.comparison.recoveryPercentChange! > 0 ? '↑' : '↓' }}
                   {{ abs(data.comparison.recoveryPercentChange!) | number: '1.0-1' }}
@@ -76,6 +77,18 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
               }
             </span>
           }
+          <details class="def def-on-primary">
+            <summary>What this counts</summary>
+            <p>{{ data.definitions.recovery }}</p>
+            @if (data.recovery.neverContacted > 0) {
+              <p>
+                {{ data.recovery.neverContacted | number }} other
+                {{ data.recovery.neverContacted === 1 ? 'flag' : 'flags' }} never reached anyone —
+                no contact details, a delivery failure, or the offer budget already spent. They
+                aren't counted as misses above. That number is the opportunity you couldn't attempt.
+              </p>
+            }
+          </details>
         </div>
       </div>
 
@@ -84,23 +97,44 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
           <span class="label">Customers monitored</span>
           <span class="value">{{ data.customersMonitored | number }}</span>
           <span class="sub">
-            {{ data.customersBelowThreshold | number }} more seen too few times to have a rhythm yet.
+            of {{ data.customersTotal | number }} —
+            {{ data.customersBelowThreshold | number }} seen too few times to have a rhythm yet.
           </span>
+          <details class="def">
+            <summary>What this counts</summary>
+            <p>{{ data.definitions.customersMonitored }}</p>
+          </details>
         </div>
 
         <div class="card stat">
-          <span class="label">Currently quiet</span>
-          <span class="value">{{ data.activeFlags | number }}</span>
-          <span class="sub">Flagged and not back yet.</span>
+          <span class="label">Currently drifting</span>
+          <span class="value">{{ data.statusBreakdown.drifting | number }}</span>
+          <span class="sub">Outside their normal rhythm and not back yet.</span>
+        </div>
+
+        <div class="card stat">
+          <span class="label">High-value customers drifting</span>
+          <span class="value">{{ data.highValueDrifting | number }}</span>
+          <span class="sub">
+            @if (data.highValueDrifting === 0) {
+              Nobody worth well above your average is drifting right now.
+            } @else {
+              Worth well above your average customer, and overdue. Worth a call today.
+            }
+          </span>
+          <details class="def">
+            <summary>What this counts</summary>
+            <p>{{ data.definitions.highValueDrifting }}</p>
+          </details>
         </div>
 
         <div class="card stat">
           <span class="label">Offers sent</span>
           <span class="value">{{ data.offersSent | number }}</span>
           <!-- The only stat card with a trend line. "Monitored" and "currently
-               quiet" are counts of how things stand right now; nothing records
-               how they stood eight weeks ago, so an arrow beside them would be
-               reconstructed rather than measured. -->
+               drifting" are counts of how things stand right now; nothing
+               records how they stood eight weeks ago, so an arrow beside them
+               would be reconstructed rather than measured. -->
           @if (data.comparison.offersSentChangePercent !== null) {
             <span class="delta" [class.down]="data.comparison.offersSentChangePercent! < 0">
               {{ data.comparison.offersSentChangePercent! > 0 ? '↑' : '↓' }}
@@ -119,24 +153,124 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
         </div>
       </div>
 
+      <!-- Money, when the imported data supports it. Its own request, so this
+           section failing leaves every count above intact. -->
+      @if (impactError()) {
+        <div class="banner banner-warning" role="status">
+          <span>Couldn't load the revenue figures. The counts above are unaffected.</span>
+        </div>
+      } @else {
+        <!-- Nested rather than an else-if, for the same reason the stats alias
+             above is: the "as" alias attaches to a plain if only. -->
+        @if (impact(); as money) {
+          <section class="card impact">
+            <div class="impact-head">
+              <h2>Retention impact</h2>
+              <span class="muted small">All amounts in {{ money.currencyCode }}</span>
+            </div>
+            <p class="muted small" style="margin:0 0 var(--space-4)">
+              What the programme has been worth so far, over every offer ever delivered.
+            </p>
+
+            <div class="impact-grid">
+              <div class="impact-figure">
+                <span class="label">Revenue from customers who returned</span>
+                <span class="value money">{{ money.revenueFromReturnedCustomers | number: '1.2-2' }}
+                  <span class="code">{{ money.currencyCode }}</span></span>
+                <span class="sub">{{ money.returned | number }} customers, within
+                  {{ money.recoveryWindowDays }} days of their offer.</span>
+              </div>
+
+              <div class="impact-figure">
+                <span class="label">Intervention cost</span>
+                @if (money.interventionCost === null) {
+                  <span class="value">—</span>
+                  <span class="sub">
+                    {{ money.freeItemOffers | number }}
+                    free-{{ money.freeItemOffers === 1 ? 'item' : 'items' }} offer{{
+                      money.freeItemOffers === 1 ? '' : 's' }} can't be valued: there's no item price
+                    in your transaction data. No total is shown rather than a partial one.
+                  </span>
+                } @else {
+                  <span class="value money">{{ money.interventionCost | number: '1.2-2' }}
+                    <span class="code">{{ money.currencyCode }}</span></span>
+                  <span class="sub">Across {{ money.contacted | number }} delivered
+                    {{ money.contacted === 1 ? 'offer' : 'offers' }}.</span>
+                }
+              </div>
+
+              <div class="impact-figure">
+                <span class="label">Net value</span>
+                @if (money.netValue === null) {
+                  <span class="value">—</span>
+                  <span class="sub">Not shown while any offer's cost is unknown.</span>
+                } @else {
+                  <span class="value money" [class.negative]="money.netValue < 0">
+                    {{ money.netValue | number: '1.2-2' }}
+                    <span class="code">{{ money.currencyCode }}</span></span>
+                  <span class="sub">Revenue from returned customers, less the recorded cost.</span>
+                }
+              </div>
+
+              <div class="impact-figure">
+                <span class="label">Average recovered customer</span>
+                @if (money.averageRecoveredCustomerValue === null) {
+                  <span class="value">—</span>
+                  <span class="sub">Nobody has returned yet.</span>
+                } @else {
+                  <span class="value money">{{ money.averageRecoveredCustomerValue | number: '1.2-2' }}
+                    <span class="code">{{ money.currencyCode }}</span></span>
+                  <span class="sub">What one returning customer spends in their window.</span>
+                }
+              </div>
+            </div>
+
+            <!-- The methodology is part of the output, not a footnote. These
+                 figures are what a buyer acts on; without their definitions they
+                 are just numbers with a currency sign. -->
+            <details class="def def-wide">
+              <summary>How these are worked out</summary>
+              <dl class="method">
+                <dt>Revenue from customers who returned</dt>
+                <dd>{{ money.definitions.revenueFromReturnedCustomers }}</dd>
+                <dt>Intervention cost</dt>
+                <dd>{{ money.definitions.interventionCost }}</dd>
+                <dt>Net value</dt>
+                <dd>{{ money.definitions.netValue }}</dd>
+                <dt>Cohort</dt>
+                <dd>{{ money.definitions.contacted }}</dd>
+              </dl>
+            </details>
+          </section>
+        }
+      }
+
       <div class="panels">
         <section class="card panel">
           <h2>Customer status breakdown</h2>
           <div class="donut-row">
-            <!-- conic-gradient rather than a chart library: three static slices
+            <!-- conic-gradient rather than a chart library: four static slices
                  don't justify the payload, and the same numbers are listed
                  beside it so the colour is never the only carrier. -->
             <div class="donut" [style.background]="donut(data)" role="img"
                  [attr.aria-label]="donutLabel(data)"></div>
             <ul class="legend">
+              <li><span class="swatch drifting"></span>
+                Drifting now <strong>{{ data.statusBreakdown.drifting | number }}</strong></li>
               <li><span class="swatch came-back"></span>
-                Came back <strong>{{ data.statusBreakdown.cameBack | number }}</strong></li>
-              <li><span class="swatch quiet"></span>
-                Still quiet <strong>{{ data.statusBreakdown.stillQuiet | number }}</strong></li>
+                Returned <strong>{{ data.statusBreakdown.returned | number }}</strong></li>
+              <li><span class="swatch on-rhythm"></span>
+                On rhythm <strong>{{ data.statusBreakdown.onRhythm | number }}</strong></li>
               <li><span class="swatch new"></span>
                 Not enough data <strong>{{ data.statusBreakdown.notEnoughData | number }}</strong></li>
+              <li class="legend-total">
+                All customers <strong>{{ data.statusBreakdown.total | number }}</strong></li>
             </ul>
           </div>
+          <details class="def">
+            <summary>What this counts</summary>
+            <p>{{ data.definitions.statusBreakdown }}</p>
+          </details>
         </section>
 
         <section class="card panel">
@@ -310,9 +444,69 @@ import { WeeklyChartComponent } from '../shared/weekly-chart.component';
     }
     .legend strong { color: var(--text); font-variant-numeric: tabular-nums; }
     .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+    /* Swatch colours are the donut segment colours, in the donut's order. */
+    .swatch.drifting { background: #e3a008; }
     .swatch.came-back { background: var(--primary-500); }
-    .swatch.quiet { background: #e3a008; }
+    .swatch.on-rhythm { background: var(--success-600); }
     .swatch.new { background: var(--neutral-200); }
+    /* The partition's total, ruled off from its four parts so it reads as the
+       sum rather than as a fifth category. */
+    .legend-total {
+      border-top: 1px solid var(--border);
+      padding-top: var(--space-2);
+      margin-top: var(--space-1);
+      color: var(--text);
+    }
+
+    /* "What this counts" — the definition of a figure, disclosed beside it
+       rather than hidden in a tooltip or a help page. Closed by default so the
+       numbers stay the loudest thing on the card. */
+    .def { margin-top: auto; padding-top: var(--space-3); }
+    .def summary {
+      cursor: pointer;
+      font-size: var(--text-xs);
+      color: var(--text-subtle);
+      list-style: none;
+      text-decoration: underline dotted;
+      text-underline-offset: 2px;
+    }
+    .def summary::-webkit-details-marker { display: none; }
+    .def summary:hover { color: var(--text-muted); }
+    .def p {
+      margin: var(--space-2) 0 0;
+      font-size: var(--text-xs);
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+    .def-on-primary { grid-column: 1 / -1; }
+    .def-on-primary summary,
+    .def-on-primary p { color: rgba(255, 255, 255, 0.82); }
+    .def-on-primary summary:hover { color: #fff; }
+    .def-wide { margin-top: var(--space-4); }
+
+    .impact { padding: var(--space-5); margin-bottom: var(--space-5); }
+    .impact-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .impact-head h2 { font-size: var(--text-lg); margin: 0; }
+    .impact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: var(--space-5);
+    }
+    .impact-figure { display: flex; flex-direction: column; gap: var(--space-1); }
+    .impact-figure .value { font-size: 1.5rem; }
+    /* No thousands separators invented and no rounding to whole units: the
+       amount is whatever the POS export said it was. */
+    .code { font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); }
+    .value.negative { color: var(--danger-600); }
+    .method { margin: var(--space-2) 0 0; font-size: var(--text-xs); }
+    .method dt { font-weight: 600; color: var(--text); margin-top: var(--space-2); }
+    .method dd { margin: 2px 0 0; color: var(--text-muted); line-height: 1.5; }
 
     .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
     .bars li {
@@ -344,6 +538,14 @@ export class OverviewComponent {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
+  /**
+   * The money section loads separately. It is the only part of this screen that
+   * needs transaction amounts, so a business whose import carried no amounts
+   * still gets every count above rather than an empty page.
+   */
+  readonly impact = signal<RetentionImpact | null>(null);
+  readonly impactError = signal(false);
+
   constructor() {
     this.load();
   }
@@ -351,6 +553,7 @@ export class OverviewComponent {
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    this.impactError.set(false);
     this.api.getOverview().subscribe({
       next: (data) => {
         this.stats.set(data);
@@ -359,6 +562,13 @@ export class OverviewComponent {
       error: () => {
         this.loading.set(false);
         this.error.set('Could not load your figures.');
+      },
+    });
+    this.api.getRetentionImpact().subscribe({
+      next: (data) => this.impact.set(data),
+      error: () => {
+        this.impact.set(null);
+        this.impactError.set(true);
       },
     });
   }
@@ -388,25 +598,33 @@ export class OverviewComponent {
   /**
    * Slices in the same order as the legend. Percentages are derived here rather
    * than sent by the API because they are pure presentation — the counts are
-   * the fact, and three counts that must sum to the total are better checked in
+   * the fact, and four counts that must sum to the total are better checked in
    * one place than trusted from two.
+   *
+   * The four buckets are a partition of the customer base, so the arcs always
+   * close on 100% and the ring stands for the whole book of customers. That is
+   * the property the screen used to lack: the old breakdown mixed flag counts
+   * with customer counts and did not add up to anything.
    */
   donut(data: OverviewStats): string {
-    const { cameBack, stillQuiet, notEnoughData } = data.statusBreakdown;
-    const total = cameBack + stillQuiet + notEnoughData;
+    const { drifting, returned, onRhythm, notEnoughData } = data.statusBreakdown;
+    const total = drifting + returned + onRhythm + notEnoughData;
     if (total === 0) {
       return 'var(--neutral-200)';
     }
-    const first = (cameBack / total) * 100;
-    const second = first + (stillQuiet / total) * 100;
-    return `conic-gradient(var(--primary-500) 0 ${first}%, `
-      + `#e3a008 ${first}% ${second}%, var(--neutral-200) ${second}% 100%)`;
+    const driftingEnd = (drifting / total) * 100;
+    const returnedEnd = driftingEnd + (returned / total) * 100;
+    const onRhythmEnd = returnedEnd + (onRhythm / total) * 100;
+    return `conic-gradient(#e3a008 0 ${driftingEnd}%, `
+      + `var(--primary-500) ${driftingEnd}% ${returnedEnd}%, `
+      + `var(--success-600) ${returnedEnd}% ${onRhythmEnd}%, `
+      + `var(--neutral-200) ${onRhythmEnd}% 100%)`;
   }
 
   donutLabel(data: OverviewStats): string {
-    const { cameBack, stillQuiet, notEnoughData } = data.statusBreakdown;
-    return `${cameBack} came back, ${stillQuiet} still quiet, `
-      + `${notEnoughData} without enough data to judge.`;
+    const { drifting, returned, onRhythm, notEnoughData, total } = data.statusBreakdown;
+    return `Of ${total} customers: ${drifting} drifting now, ${returned} returned, `
+      + `${onRhythm} on rhythm, ${notEnoughData} without enough data to judge.`;
   }
 
   /** Severity order, so the list reads worst-last regardless of row order. */

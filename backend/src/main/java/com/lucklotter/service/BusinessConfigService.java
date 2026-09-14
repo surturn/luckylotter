@@ -50,6 +50,9 @@ public class BusinessConfigService {
         business.setOfferCooldownMultiplier(request.offerCooldownMultiplier());
         business.setOfferCapPerWindow(request.offerCapPerWindow());
         business.setOfferBudgetWindowDays(request.offerBudgetWindowDays());
+        business.setRecoveryWindowDays(request.recoveryWindowDays());
+        business.setCurrencyCode(request.currencyCode());
+        business.setTimezone(request.timezone());
         business.setDefaultDealType(request.defaultDealType());
         business.setDefaultDealValue(request.defaultDealValue());
 
@@ -77,6 +80,9 @@ public class BusinessConfigService {
                 business.getOfferCooldownMultiplier(),
                 business.getOfferCapPerWindow(),
                 business.getOfferBudgetWindowDays(),
+                business.getRecoveryWindowDays(),
+                business.getCurrencyCode(),
+                business.getTimezone(),
                 business.getDefaultDealType(),
                 business.getDefaultDealValue(),
                 RetentionConstants.MIN_TRANSACTIONS);

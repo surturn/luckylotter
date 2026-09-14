@@ -41,6 +41,53 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     long countByBusinessIdAndAvgIntervalDaysIsNull(UUID businessId);
 
     /**
+     * Customers who have been flagged at some point and are not flagged now —
+     * the ones who came back and stayed back (FR-7).
+     *
+     * <p>Counted over {@code customers}, not over flags: a customer who lapsed
+     * and returned three times is one recovered customer and three resolved
+     * flags, and the overview's breakdown has to add up to the customer base
+     * rather than to the flag table. "Not flagged now" is the other half of the
+     * definition — a customer who came back and has since gone quiet again
+     * belongs under "drifting today", which is the more useful thing to tell
+     * someone deciding who to contact this morning.
+     */
+    @Query(value = """
+        SELECT COUNT(*)
+        FROM customers c
+        WHERE c.business_id = :businessId
+          AND EXISTS (
+              SELECT 1 FROM retention_flags f
+              WHERE f.customer_id = c.id AND f.status = 'RESOLVED'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM retention_flags f
+              WHERE f.customer_id = c.id AND f.status = 'ACTIVE'
+          )
+        """, nativeQuery = true)
+    long countReturnedAndNotCurrentlyFlagged(@Param("businessId") UUID businessId);
+
+    /**
+     * Customers with an established rhythm who have never been flagged — the
+     * ones the engine is watching and finding nothing wrong with (FR-7).
+     *
+     * <p>The remaining quarter of the breakdown. It is on the dashboard because
+     * without it "28 monitored, 5 drifting, 12 returned" leaves the reader to
+     * work out that the other eleven are fine, and a number the reader has to
+     * derive is one they will get wrong.
+     */
+    @Query(value = """
+        SELECT COUNT(*)
+        FROM customers c
+        WHERE c.business_id = :businessId
+          AND c.avg_interval_days IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM retention_flags f WHERE f.customer_id = c.id
+          )
+        """, nativeQuery = true)
+    long countOnRhythmNeverFlagged(@Param("businessId") UUID businessId);
+
+    /**
      * At-risk candidates for one business (FR-3). Returns only customers with an
      * established cadence and no open flag; the per-customer threshold
      * comparison itself happens in the service layer via

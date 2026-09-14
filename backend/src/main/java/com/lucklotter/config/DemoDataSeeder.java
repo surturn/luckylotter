@@ -185,6 +185,12 @@ public class DemoDataSeeder implements CommandLineRunner {
         business.setName("Kaldi's Coffee House");
         business.setDefaultDealType(DealType.PERCENT_OFF);
         business.setDefaultDealValue(new BigDecimal("25.00"));
+        // The fixture is a Nairobi café, so it is denominated in shillings and
+        // keeps Nairobi hours. Leaving the schema default here would put the
+        // demo's revenue figures under a currency symbol that contradicts its
+        // own phone numbers.
+        business.setCurrencyCode("KES");
+        business.setTimezone("Africa/Nairobi");
         businesses.save(business);
 
         AdminUser admin = new AdminUser();

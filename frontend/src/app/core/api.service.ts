@@ -12,6 +12,7 @@ import {
   ImportResult,
   OverviewStats,
   PageResponse,
+  RetentionImpact,
   ScanSummary,
 } from './api.models';
 
@@ -87,6 +88,17 @@ export class ApiService {
   /** Every counter behind the overview screen, aggregated server-side (FR-7). */
   getOverview(): Observable<OverviewStats> {
     return this.http.get<OverviewStats>('/v1/stats/overview');
+  }
+
+  /**
+   * What the win-back programme has been worth in money, with the definition of
+   * each figure attached.
+   *
+   * Its own request rather than part of the overview, so no caller can render a
+   * revenue number while leaving behind the sentence that says what it counts.
+   */
+  getRetentionImpact(): Observable<RetentionImpact> {
+    return this.http.get<RetentionImpact>('/v1/stats/retention-impact');
   }
 
   /** How many flagged customers have no contact details at all (FR-5). */

@@ -75,6 +75,36 @@ public class Business {
     @Column(name = "offer_budget_window_days", nullable = false)
     private int offerBudgetWindowDays = 30;
 
+    /**
+     * How long after an offer reaches a customer their next purchase still
+     * counts as a return for that offer.
+     *
+     * <p>Without it a return is any purchase, ever, which makes the recovery
+     * rate rise with nothing but the passage of time. Measured from
+     * {@code offers.sent_at}, so a customer who came back before their offer
+     * was delivered is not counted as having come back <em>because</em> of it.
+     */
+    @Column(name = "recovery_window_days", nullable = false)
+    private int recoveryWindowDays = 14;
+
+    /**
+     * ISO 4217 code for every amount this business records. Amounts are stored
+     * as plain numbers in this currency; nothing converts, and no figure mixes
+     * two currencies because a business has exactly one.
+     */
+    @Column(name = "currency_code", nullable = false, length = 3)
+    private String currencyCode = "USD";
+
+    /**
+     * The business's own timezone, an IANA zone ID.
+     *
+     * <p>Reporting periods and the nightly scan should be expressed in the day
+     * the operator is living in, not UTC. Stored now so the figure that needs it
+     * has a source of truth; the aggregate queries still bucket by UTC.
+     */
+    @Column(name = "timezone", nullable = false, length = 64)
+    private String timezone = "UTC";
+
     @Enumerated(EnumType.STRING)
     @Column(name = "default_deal_type", nullable = false, length = 24)
     private DealType defaultDealType = DealType.PERCENT_OFF;

@@ -20,6 +20,11 @@ public record BusinessConfigResponse(
     BigDecimal offerCooldownMultiplier,
     int offerCapPerWindow,
     int offerBudgetWindowDays,
+    /** Days after a delivered offer in which a purchase still counts as a return. */
+    int recoveryWindowDays,
+    /** ISO 4217 code for every amount this business records. */
+    String currencyCode,
+    String timezone,
     DealType defaultDealType,
     BigDecimal defaultDealValue,
     int minTransactions
