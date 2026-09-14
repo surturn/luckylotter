@@ -3,6 +3,7 @@ package com.lucklotter.web;
 import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.security.AdminPrincipal;
 import com.lucklotter.service.FlagQueryService;
+import com.lucklotter.service.FlagSort;
 import com.lucklotter.web.dto.FlagDetailResponse;
 import com.lucklotter.web.dto.FlagSummaryResponse;
 import com.lucklotter.web.dto.FlagVisitsResponse;
@@ -35,6 +36,9 @@ public class FlagController {
 
     /**
      * @param status optional filter; omit for every flag regardless of state
+     * @param sort   optional order; defaults to priority, which is the whole
+     *               point of the screen — the most recent flag is not the one
+     *               worth acting on first (§5)
      * @param size   capped, so a caller can't ask for the whole table in one
      *               page and blow the dashboard's latency budget (NFR-5)
      */
@@ -42,9 +46,10 @@ public class FlagController {
     public PageResponse<FlagSummaryResponse> list(
             @AuthenticationPrincipal AdminPrincipal admin,
             @RequestParam(required = false) FlagStatus status,
+            @RequestParam(defaultValue = "PRIORITY") FlagSort sort,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
-        return flagQueryService.list(admin.businessId(), status, page, size);
+        return flagQueryService.list(admin.businessId(), status, sort, page, size);
     }
 
     /**

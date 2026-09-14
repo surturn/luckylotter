@@ -21,11 +21,19 @@ public final class PostgresTestContainer {
 
     // Same major version as docker-compose.yml, so tests and the dev stack
     // can't disagree about constraint or type behaviour.
+    //
+    // The connection ceiling is raised because the container is shared while
+    // Spring's context cache is not: every distinct test context keeps its own
+    // Hikari pool open for the life of the JVM, and the default 100 is reached
+    // partway through the suite — as "FATAL: sorry, too many clients already"
+    // during a later context's Flyway migration, which reads as a broken
+    // migration rather than as exhausted connections.
     private static final PostgreSQLContainer<?> INSTANCE =
             new PostgreSQLContainer<>("postgres:16")
                     .withDatabaseName("lucklotter_test")
                     .withUsername("lucklotter")
-                    .withPassword("lucklotter");
+                    .withPassword("lucklotter")
+                    .withCommand("postgres", "-c", "max_connections=300");
 
     static {
         INSTANCE.start();
