@@ -6,6 +6,8 @@ import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferFailureCode;
 import com.lucklotter.domain.OfferStatus;
+import com.lucklotter.domain.PosTransaction;
+import com.lucklotter.domain.RetentionFlag;
 import com.lucklotter.repo.AdminUserRepository;
 import com.lucklotter.repo.BusinessRepository;
 import com.lucklotter.repo.CustomerRepository;
@@ -19,10 +21,11 @@ import com.lucklotter.service.OfferSendService;
 import com.lucklotter.service.RedemptionCodeGenerator;
 import com.lucklotter.service.RetentionScanService;
 import com.lucklotter.service.notify.NotificationSender;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -67,6 +70,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         RetentionScanService.class, FlagCreationService.class, OfferDispatchService.class,
         OfferSendService.class, RedemptionCodeGenerator.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DemoSeedDispatchTest extends AbstractPostgresTest {
 
     /** Quiet, flaggable, and reachable — these are the ones mail is for. */
@@ -75,9 +79,6 @@ class DemoSeedDispatchTest extends AbstractPostgresTest {
 
     /** Quiet and flaggable, but the till recorded no way to reach them. */
     private static final Set<String> UNCONTACTABLE = Set.of("POS-1005", "POS-1006");
-
-    /** The eight weeks of backdated fixture offers, all already delivered. */
-    private static final int HISTORICAL_OFFERS = 15;
 
     /** Still on cadence, or too few visits to have a cadence at all. */
     private static final Set<String> NOT_FLAGGABLE =
@@ -107,14 +108,26 @@ class DemoSeedDispatchTest extends AbstractPostgresTest {
     @Autowired
     private OfferRepository offers;
 
-    @BeforeEach
+    /**
+     * Seeded once for the class rather than once per test: the fixture now
+     * carries several hundred customers and a few thousand transactions, and
+     * every test here only reads it. Paying for that seed five times over was
+     * the bulk of this class's wall-clock.
+     *
+     * <p>The send log is cleared before seeding, not after. The context runs the
+     * seeder once on its way up as well, so by the time this runs the recorder
+     * already holds deliveries addressed to customers {@link #clearDatabase()}
+     * is about to delete — and an assertion counting what this run handed over
+     * would be counting those too.
+     */
+    @BeforeAll
     void seed() {
         clearDatabase();
         sender.delivered.clear();
         seeder.run();
     }
 
-    @AfterEach
+    @AfterAll
     void cleanUp() {
         clearDatabase();
     }
@@ -166,23 +179,55 @@ class DemoSeedDispatchTest extends AbstractPostgresTest {
     }
 
     @Test
+    @DisplayName("the fixture looks like a real book, not a handful of rows")
+    void fixtureHasTheShapeOfARealBook() {
+        // The point of §22's scale-up: percentages off a few dozen customers are
+        // noise, and a book where every ticket cost the same amount makes the
+        // revenue figures arithmetically true and visually meaningless.
+        List<Customer> all = customers.findAll();
+        assertThat(all).hasSizeGreaterThan(300);
+
+        List<PosTransaction> ledger = transactions.findAll();
+        assertThat(ledger).hasSizeGreaterThan(1000);
+        assertThat(ledger.stream().map(PosTransaction::getAmount).distinct().count())
+                .as("distinct ticket amounts")
+                .isGreaterThan(50);
+
+        List<RetentionFlag> allFlags = flags.findAll();
+        long atRisk = allFlags.stream()
+                .filter(flag -> flag.getStatus() == FlagStatus.ACTIVE)
+                .count();
+        assertThat(atRisk).as("customers the trigger flagged").isPositive();
+        // Not everyone: the trigger has to decline as readily as it fires, or
+        // there is nothing for the operator to triage.
+        assertThat(atRisk).isLessThan(all.size() / 2);
+
+        // Resolved history is what the retention report's recovery rate is
+        // computed from, so a fixture without any would leave the headline
+        // figure at zero.
+        assertThat(allFlags).anyMatch(flag -> flag.getStatus() == FlagStatus.RESOLVED);
+    }
+
+    @Test
     @DisplayName("the backdated history is not re-sent")
     void historicalOffersAreNotRedelivered() {
-        // The eight weeks of fixture offers are already SENT, and the dispatcher
+        // The fixture's backdated offers are already SENT, and the dispatcher
         // reads PENDING and FAILED only. If that ever changed, a demo would open
-        // by mailing fifteen people about offers dated two months ago.
+        // by mailing hundreds of people about offers dated weeks ago.
         Instant justNow = Instant.now().minus(Duration.ofMinutes(5));
         List<Offer> sent = offers.findAll().stream()
                 .filter(offer -> offer.getStatus() == OfferStatus.SENT)
                 .toList();
-        List<Offer> backdated = sent.stream()
+        long backdated = sent.stream()
                 .filter(offer -> offer.getSentAt().isBefore(justNow))
-                .toList();
+                .count();
+        long stampedThisRun = sent.size() - backdated;
 
-        assertThat(backdated).hasSize(HISTORICAL_OFFERS);
+        // There has to be backdated history for this test to be about anything.
+        assertThat(backdated).isPositive();
         // Everything the sender was handed this run is accounted for by the
         // offers stamped just now — so no backdated offer went through it.
-        assertThat(sent).hasSize(HISTORICAL_OFFERS + sender.delivered.size());
+        assertThat(stampedThisRun).isEqualTo(sender.delivered.size());
     }
 
     // --- helpers ------------------------------------------------------------
