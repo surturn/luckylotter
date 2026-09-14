@@ -195,6 +195,51 @@ class ApiSecurityAndContractTest extends AbstractWebTest {
     }
 
     @Test
+    @DisplayName("the diagnostic comes back whole, with its sections and its working")
+    void diagnosticCarriesEverySection() throws Exception {
+        Business mine = business("Kaldi's");
+        admin(mine, "owner@kaldis.test");
+        Customer customer = customer(mine);
+        flag(mine, customer);
+
+        String body = mvc.perform(get("/v1/stats/diagnostic")
+                        .header("Authorization", "Bearer " + tokenFor("owner@kaldis.test")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode report = json.readTree(body);
+        // §7's five sections, none of them absent: a report that silently drops
+        // the one it could not build leaves the reader to guess which.
+        assertThat(report.get("executiveSummary")).isNotNull();
+        assertThat(report.get("customerBehaviour").get("cadenceSegments")).hasSize(5);
+        assertThat(report.get("customerBehaviour").get("purchaseCountDistribution")).hasSize(5);
+        assertThat(report.get("atRiskCustomers")).hasSize(1);
+        assertThat(report.get("interventionPerformance").get("impact")).isNotNull();
+        assertThat(report.get("opportunity").get("available").asBoolean()).isFalse();
+        assertThat(report.get("opportunity").get("method").asText()).contains("control group");
+    }
+
+    @Test
+    @DisplayName("the diagnostic reports the caller's own business and nobody else's")
+    void diagnosticIsScopedToTheCallersTenant() throws Exception {
+        Business mine = business("Kaldi's");
+        admin(mine, "owner@kaldis.test");
+        flag(mine, customer(mine));
+        Business theirs = business("Blue Bottle");
+        flag(theirs, customer(theirs));
+        flag(theirs, customer(theirs));
+
+        String body = mvc.perform(get("/v1/stats/diagnostic")
+                        .header("Authorization", "Bearer " + tokenFor("owner@kaldis.test")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // The count a leak would move first.
+        assertThat(json.readTree(body).get("executiveSummary")
+                .get("customersShowingCadenceDisruption").asLong()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("naming another tenant in the body is refused, not quietly rewritten")
     void ingestRefusesAMismatchedBusinessId() throws Exception {
         // The most dangerous shape of this bug is a caller writing a transaction

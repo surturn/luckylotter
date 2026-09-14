@@ -88,6 +88,86 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     long countOnRhythmNeverFlagged(@Param("businessId") UUID businessId);
 
     /**
+     * The spread of rhythm across the customers who have one (§7).
+     *
+     * <p>Quartiles rather than a mean alone: a customer base of weekly regulars
+     * with three quarterly visitors among them has a mean that describes nobody,
+     * and the mean alone would let a handful of outliers define what "typical"
+     * means. The mean is returned beside them because the gap between it and the
+     * median is itself a fact worth seeing — when they diverge, the base is
+     * lopsided and any single number about it is a distortion.
+     *
+     * <p>Returns one row even for a business with no customers at all: the count
+     * is then zero and every percentile null, which is the honest answer and not
+     * the same as a typical interval of zero days.
+     */
+    @Query(value = """
+        SELECT COUNT(*)                                                      AS "customers",
+               PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY avg_interval_days) AS "p25Days",
+               PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY avg_interval_days) AS "medianDays",
+               PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY avg_interval_days) AS "p75Days",
+               AVG(avg_interval_days)                                        AS "meanDays"
+        FROM customers
+        WHERE business_id = :businessId
+          AND avg_interval_days IS NOT NULL
+        """, nativeQuery = true)
+    CadenceSpreadRow cadenceSpread(@Param("businessId") UUID businessId);
+
+    /**
+     * Customers per rhythm band (§7), the "cadence segments" of the diagnostic.
+     *
+     * <p>Bands are on the customer's own interval, not on the threshold the
+     * engine applied: the threshold carries the business's sensitivity multiplier
+     * and clamp, so segmenting on it would describe the settings rather than the
+     * customers.
+     *
+     * <p>Only customers with a cadence are counted, which makes the bands sum to
+     * {@link #countByBusinessIdAndAvgIntervalDaysIsNotNull} — the same population
+     * the overview calls monitored.
+     */
+    @Query(value = """
+        SELECT CASE
+                 WHEN avg_interval_days <= 10  THEN 'WEEKLY'
+                 WHEN avg_interval_days <= 21  THEN 'FORTNIGHTLY'
+                 WHEN avg_interval_days <= 45  THEN 'MONTHLY'
+                 WHEN avg_interval_days <= 120 THEN 'QUARTERLY'
+                 ELSE 'RARER'
+               END AS "bucket",
+               COUNT(*) AS "total"
+        FROM customers
+        WHERE business_id = :businessId
+          AND avg_interval_days IS NOT NULL
+        GROUP BY 1
+        """, nativeQuery = true)
+    List<BucketCount> countCustomersByCadenceSegment(@Param("businessId") UUID businessId);
+
+    /**
+     * Customers per purchase-count band (§7), over the whole base.
+     *
+     * <p>Counts purchases on record rather than visits, consistent with
+     * {@code transaction_count} everywhere else — a split bill is several rows
+     * and one visit, and the column that says so is the one the engine gates on.
+     *
+     * <p>The first band is exactly the population that can never be flagged, so
+     * this distribution reconciles with the overview's "too little history"
+     * figure instead of quietly disagreeing with it.
+     */
+    @Query(value = """
+        SELECT CASE
+                 WHEN transaction_count <= 2  THEN 'ONE_OR_TWO'
+                 WHEN transaction_count <= 5  THEN 'THREE_TO_FIVE'
+                 WHEN transaction_count <= 10 THEN 'SIX_TO_TEN'
+                 WHEN transaction_count <= 20 THEN 'ELEVEN_TO_TWENTY'
+                 ELSE 'TWENTY_ONE_PLUS'
+               END AS "bucket",
+               COUNT(*) AS "total"
+        FROM customers
+        WHERE business_id = :businessId
+        GROUP BY 1
+        """, nativeQuery = true)
+    List<BucketCount> countCustomersByPurchaseCountBand(@Param("businessId") UUID businessId);
+
+    /**
      * At-risk candidates for one business (FR-3). Returns only customers with an
      * established cadence and no open flag; the per-customer threshold
      * comparison itself happens in the service layer via
