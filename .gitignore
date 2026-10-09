@@ -27,3 +27,6 @@ Thumbs.db
 .playwright-mcp/
 *.png
 !docs/images/*.png
+
+# graphify code graph (local)
+graphify-out/
