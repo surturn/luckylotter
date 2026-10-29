@@ -143,11 +143,6 @@ export class ApiService {
     return this.http.get<RetentionDiagnostic>('/v1/stats/diagnostic');
   }
 
-  /** How many flagged customers have no contact details at all (FR-5). */
-  getStats(): Observable<{ uncontactableOffers: number }> {
-    return this.http.get<{ uncontactableOffers: number }>('/v1/flags/stats');
-  }
-
   /** Runs the scan on demand so a demo doesn't wait for the nightly schedule. */
   runScan(): Observable<ScanSummary> {
     return this.http.post<ScanSummary>('/v1/admin/retention/run', {});

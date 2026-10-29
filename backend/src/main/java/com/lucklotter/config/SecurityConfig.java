@@ -14,7 +14,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Stateless, JWT-bound security (NFR-1).
  *
- * <p>Everything is authenticated except login and the health/ping probes. The
+ * <p>Everything is authenticated except login and the health probe. The
  * default is deny: a new endpoint is protected unless it is deliberately added
  * to the public list below.
  *
@@ -29,8 +29,7 @@ public class SecurityConfig {
     /** Reachable without a token. Keep this list short and deliberate. */
     private static final String[] PUBLIC_PATHS = {
             "/v1/auth/login",
-            "/actuator/health",
-            "/api/ping"
+            "/actuator/health"
     };
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;

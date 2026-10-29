@@ -1,6 +1,7 @@
 package com.lucklotter.service;
 
 import com.lucklotter.domain.Customer;
+import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferFailureCode;
 import com.lucklotter.domain.OfferStatus;
@@ -58,6 +59,12 @@ public class OfferSendService {
         Offer offer = offers.findById(offerId)
                 .orElseThrow(() -> new NotFoundException("Offer not found"));
         if (!SENDABLE.contains(offer.getStatus())) {
+            return false;
+        }
+        // Re-checked here as well as in the backlog query: the customer can come
+        // back between the two, and the flag is the only record of it.
+        if (offer.getFlag().getStatus() != FlagStatus.ACTIVE) {
+            log.info("Offer not sent, customer already returned: offerId={}", offerId);
             return false;
         }
         Customer customer = offer.getFlag().getCustomer();

@@ -16,6 +16,14 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      # A POS export can hold CsvImportService.MAX_ROWS (50,000) rows, which is
+      # several megabytes. Spring's default is 1MB, which turned a file the
+      # importer would have accepted into a 500 before it was read. nginx
+      # carries the matching limit.
+      max-file-size: 20MB
+      max-request-size: 21MB
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:1025}
@@ -58,8 +66,10 @@ management:
 
 lucklotter:
   security:
-    # HS256 signing secret for JWTs. Override in every real environment.
-    jwt-secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-0123456789abcdef}
+    # HS256 signing secret for JWTs. Deliberately no fallback: a literal here is
+    # public in git, and an environment that forgot to set JWT_SECRET must fail
+    # to start rather than sign tokens with it (NFR-6).
+    jwt-secret: ${JWT_SECRET}
     jwt-ttl-minutes: ${JWT_TTL_MINUTES:120}
   retention:
     # Daily cadence-break scan (FR-3). Default 02:00 server time.

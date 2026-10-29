@@ -278,8 +278,6 @@ button:focus-visible {
   border-color: var(--neutral-400);
 }
 
-.btn-ghost { background: transparent; color: var(--text-muted); }
-.btn-ghost:hover:not(:disabled) { background: var(--neutral-100); color: var(--text); }
 
 /* ===========================================================================
    Tables
@@ -338,7 +336,6 @@ tbody tr:last-child td { border-bottom: none; }
 .pill-good    { background: var(--success-50); color: var(--success-700); }
 .pill-warn    { background: var(--warning-50); color: var(--warning-700); }
 .pill-bad     { background: var(--danger-50);  color: var(--danger-700); }
-.pill-info    { background: var(--primary-50); color: var(--primary-700); }
 
 /* ===========================================================================
    Banners, callouts, states

@@ -420,10 +420,10 @@ export class ImportComponent {
       },
       error: (response) => {
         this.busy.set(false);
-        // A 400 is about the file or the mapping, and the server's message
+        // A 400 or 413 is about the file or the mapping, and the message
         // names the actual problem, so it's worth showing verbatim.
         this.error.set(
-          response.status === 400
+          response.status === 400 || response.status === 413
             ? response.error?.message ?? 'That file could not be read.'
             : 'The import failed. Check the file and try again.'
         );
@@ -472,7 +472,7 @@ export class ImportComponent {
         this.busy.set(false);
         this.counting.set(false);
         this.error.set(
-          response.status === 400
+          response.status === 400 || response.status === 413
             ? response.error?.message ?? 'That file could not be read.'
             : 'The file could not be read. Check it is a CSV and try again.'
         );

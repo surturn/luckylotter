@@ -15,8 +15,23 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
 
     Optional<Offer> findByFlagId(UUID flagId);
 
-    /** Sendable backlog — PENDING and FAILED only; NO_CONTACT is terminal. */
-    List<Offer> findByBusinessIdAndStatusIn(UUID businessId, List<OfferStatus> statuses);
+    /**
+     * Sendable backlog: the given statuses, and only while the flag behind the
+     * offer is still open.
+     *
+     * <p>A customer who has come back has had their flag resolved, and a "we've
+     * missed you" email to someone who walked in yesterday is worse than no
+     * email. It matters most for the retry backlog: an offer that failed on
+     * Monday and is retried on Friday can outlive the lapse it was written for.
+     */
+    @Query("""
+            SELECT o FROM Offer o
+            WHERE o.business.id = :businessId
+              AND o.status IN :statuses
+              AND o.flag.status = com.lucklotter.domain.FlagStatus.ACTIVE
+            """)
+    List<Offer> findSendable(@Param("businessId") UUID businessId,
+                             @Param("statuses") List<OfferStatus> statuses);
 
     long countByBusinessIdAndStatus(UUID businessId, OfferStatus status);
 

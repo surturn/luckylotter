@@ -17,8 +17,6 @@ public interface PosTransactionRepository extends JpaRepository<PosTransaction, 
     /** Idempotency check for ingestion (NFR-3). */
     Optional<PosTransaction> findByBusinessIdAndExternalTxnId(UUID businessId, String externalTxnId);
 
-    boolean existsByBusinessIdAndExternalTxnId(UUID businessId, String externalTxnId);
-
     /**
      * Visit timestamps for one customer, oldest first — the input to the average
      * interval calculation (FR-2). Rides the

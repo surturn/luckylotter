@@ -30,7 +30,7 @@ public class OfferDispatchService {
     }
 
     public void dispatchSendable(UUID businessId) {
-        List<Offer> backlog = offers.findByBusinessIdAndStatusIn(businessId, OfferSendService.SENDABLE);
+        List<Offer> backlog = offers.findSendable(businessId, OfferSendService.SENDABLE);
         if (backlog.isEmpty()) {
             return;
         }
