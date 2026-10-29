@@ -13,9 +13,16 @@ export type FlagStatus = 'ACTIVE' | 'RESOLVED';
  * `NO_CONTACT` is terminal — the customer has no email and no phone (FR-5).
  * `SUPPRESSED_BUDGET` is terminal too: the customer was flagged, but the
  * business's offer cap for the window was already spent, so nothing was sent
- * (FR-4).
+ * (FR-4). So is `SUPPRESSED_RETURNED`: the customer came back before the offer
+ * was delivered, so it was closed rather than sent.
  */
-export type OfferStatus = 'PENDING' | 'SENT' | 'FAILED' | 'NO_CONTACT' | 'SUPPRESSED_BUDGET';
+export type OfferStatus =
+  | 'PENDING'
+  | 'SENT'
+  | 'FAILED'
+  | 'NO_CONTACT'
+  | 'SUPPRESSED_BUDGET'
+  | 'SUPPRESSED_RETURNED';
 
 export type DealType = 'PERCENT_OFF' | 'FIXED_AMOUNT_OFF' | 'FREE_ITEM';
 
@@ -165,6 +172,8 @@ export interface FlagDetail {
   redemptionCode: string | null;
   offerFailureCode: OfferFailureCode | null;
   offerSentAt: string | null;
+  /** Whether a failed offer will be tried again; null when there is no offer. */
+  offerWillRetry: boolean | null;
   /**
    * The first visit after the offer, inside the business's recovery window.
    * Null when the offer went unanswered — or was answered after the window

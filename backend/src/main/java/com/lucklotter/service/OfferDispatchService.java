@@ -1,6 +1,7 @@
 package com.lucklotter.service;
 
 import com.lucklotter.domain.Offer;
+import com.lucklotter.domain.OfferRetryPolicy;
 import com.lucklotter.repo.OfferRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,7 @@ public class OfferDispatchService {
     }
 
     public void dispatchSendable(UUID businessId) {
-        List<Offer> backlog = offers.findSendable(businessId, OfferSendService.SENDABLE);
+        List<Offer> backlog = offers.findSendable(businessId, OfferRetryPolicy.MAX_SEND_ATTEMPTS, OfferRetryPolicy.PERMANENT);
         if (backlog.isEmpty()) {
             return;
         }

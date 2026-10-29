@@ -3,6 +3,8 @@ package com.lucklotter.service;
 import com.lucklotter.domain.Business;
 import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.FlagStatus;
+import com.lucklotter.domain.Offer;
+import com.lucklotter.domain.OfferStatus;
 import com.lucklotter.domain.PosTransaction;
 import com.lucklotter.domain.RetentionFlag;
 import com.lucklotter.repo.BusinessRepository;
@@ -66,7 +68,7 @@ public class IngestionService {
         }
 
         Customer customer = resolveCustomer(business, request);
-        applyContactDetails(customer, request);
+        boolean contactChanged = applyContactDetails(customer, request);
 
         PosTransaction transaction = new PosTransaction();
         transaction.setBusiness(business);
@@ -83,6 +85,9 @@ public class IngestionService {
 
         recomputeCadence(customer, request.occurredAt());
         UUID resolvedFlagId = isReturnVisit ? resolveOpenFlag(customer) : null;
+        if (contactChanged && resolvedFlagId == null) {
+            reopenFailedOffer(customer);
+        }
 
         log.info("Ingested transaction: businessId={} customerId={} transactionId={} "
                         + "transactionCount={} avgIntervalDays={} resolvedFlagId={}",
@@ -110,20 +115,46 @@ public class IngestionService {
      * email on a later sale must not erase one an earlier sale supplied (FR-1).
      *
      * <p>The display name follows the same rule for the same reason.
+     *
+     * @return true if an email or phone number was added or replaced, which is
+     *         what can make an earlier delivery failure worth retrying
      */
-    private void applyContactDetails(Customer customer, TransactionIngestRequest request) {
+    private boolean applyContactDetails(Customer customer, TransactionIngestRequest request) {
         if (request.customerName() != null && !request.customerName().isBlank()) {
             customer.setName(request.customerName().trim());
         }
         if (request.usualItem() != null && !request.usualItem().isBlank()) {
             customer.setUsualItem(request.usualItem().trim());
         }
+        boolean changed = false;
         if (request.contactEmail() != null && !request.contactEmail().isBlank()) {
-            customer.setContactEmail(request.contactEmail().trim());
+            String email = request.contactEmail().trim();
+            changed |= !email.equals(customer.getContactEmail());
+            customer.setContactEmail(email);
         }
         if (request.contactPhone() != null && !request.contactPhone().isBlank()) {
-            customer.setContactPhone(request.contactPhone().trim());
+            String phone = request.contactPhone().trim();
+            changed |= !phone.equals(customer.getContactPhone());
+            customer.setContactPhone(phone);
         }
+        return changed;
+    }
+
+    /**
+     * A corrected address deserves a fresh try. An offer that failed because the
+     * stored address was bad is not retried against the same address, so when
+     * the POS supplies a different one the failure no longer describes the
+     * customer and the offer starts over.
+     */
+    private void reopenFailedOffer(Customer customer) {
+        flags.findByCustomerIdAndStatus(customer.getId(), FlagStatus.ACTIVE)
+                .map(RetentionFlag::getOffer)
+                .filter(offer -> offer.getStatus() == OfferStatus.FAILED)
+                .ifPresent(offer -> {
+                    offer.reopenForRetry();
+                    log.info("Failed offer reopened after contact change: offerId={} customerId={}",
+                            offer.getId(), customer.getId());
+                });
     }
 
     /**
@@ -170,6 +201,14 @@ public class IngestionService {
             return null;
         }
         open.resolve(Instant.now());
+        // Nothing has reached them yet, and now nothing should: the customer
+        // answered the flag on their own before the offer was delivered.
+        Offer offer = open.getOffer();
+        if (offer != null && offer.isUnsent()) {
+            offer.markSuppressedReturned();
+            log.info("Offer closed, customer returned before delivery: offerId={} customerId={}",
+                    offer.getId(), customer.getId());
+        }
         return open.getId();
     }
 }

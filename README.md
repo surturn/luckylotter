@@ -128,7 +128,6 @@ stays explainable after the business later retunes its sensitivity.
 | GET/PUT | `/v1/businesses/me/config` | Trigger tuning and deal defaults |
 | GET | `/v1/flags` | Flagged customers, paginated, optional `status` |
 | GET | `/v1/flags/{id}` | Flag detail with its offer |
-| GET | `/v1/flags/stats` | Count of un-contactable offers |
 | POST | `/v1/admin/retention/run` | Run the scan on demand |
 
 Tenant scope always comes from the JWT, never from a path, query, or body

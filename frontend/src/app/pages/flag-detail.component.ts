@@ -269,7 +269,23 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
                   <span class="mono small muted">{{ code }}</span>
                 </dd>
               }
+              @if (detail.offerStatus === 'FAILED') {
+                <dt>Next</dt>
+                <dd>
+                  @if (detail.offerWillRetry) {
+                    It will be tried again on the next nightly scan.
+                  } @else {
+                    Not retrying. If their email or phone is corrected in your POS data, it will be tried again.
+                  }
+                </dd>
+              }
             </dl>
+            @if (detail.offerStatus === 'SUPPRESSED_RETURNED') {
+              <!-- Good news, not an error: no role="alert". -->
+              <p class="muted small" style="margin:var(--space-3) 0 0">
+                This customer came back before the offer went out, so it was never sent.
+              </p>
+            }
             @if (detail.offerStatus === 'NO_CONTACT') {
               <!-- Ranked above the surrounding detail: this offer is finished
                    and undeliverable, and only the business can unblock it. -->
@@ -512,9 +528,9 @@ export class FlagDetailComponent {
       case 'INVALID_PHONE_NUMBER':
         return 'The phone number on file was rejected as malformed.';
       case 'SENDER_TIMEOUT':
-        return 'The mail service did not respond in time. This will be retried.';
+        return 'The mail service did not respond in time.';
       case 'SENDER_UNAVAILABLE':
-        return 'The mail service was unavailable. This will be retried.';
+        return 'The mail service was unavailable.';
       case 'SENDER_REJECTED':
         return 'The mail service accepted the request but refused to send it.';
       default:

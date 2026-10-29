@@ -55,6 +55,12 @@ public record FlagDetailResponse(
     OfferFailureCode offerFailureCode,
     Instant offerSentAt,
     /**
+     * Whether a failed offer will be tried again. False once attempts are used
+     * up, or when the failure was the contact detail itself; null when there is
+     * no offer.
+     */
+    Boolean offerWillRetry,
+    /**
      * The first visit after the offer went out, inside the business's recovery
      * window. Null when the offer has not been answered — or was answered too
      * late for the window to credit it, which is the distinction the money on

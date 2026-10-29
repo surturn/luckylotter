@@ -4,7 +4,6 @@ import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferFailureCode;
-import com.lucklotter.domain.OfferStatus;
 import com.lucklotter.repo.OfferRepository;
 import com.lucklotter.support.Redact;
 import com.lucklotter.service.notify.NotificationException;
@@ -16,7 +15,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,13 +30,6 @@ import java.util.UUID;
 public class OfferSendService {
 
     private static final Logger log = LoggerFactory.getLogger(OfferSendService.class);
-
-    /**
-     * {@code NO_CONTACT} is absent by design: it is terminal, and retrying it
-     * would mean attempting to send to a customer with nothing to send to
-     * (FR-5).
-     */
-    static final List<OfferStatus> SENDABLE = List.of(OfferStatus.PENDING, OfferStatus.FAILED);
 
     private final OfferRepository offers;
     private final NotificationSender sender;
@@ -58,7 +49,9 @@ public class OfferSendService {
     public boolean send(UUID offerId) {
         Offer offer = offers.findById(offerId)
                 .orElseThrow(() -> new NotFoundException("Offer not found"));
-        if (!SENDABLE.contains(offer.getStatus())) {
+        // Queued, or failed with attempts left and a cause a retry could cure.
+        // NO_CONTACT and the suppressed states are terminal (FR-5).
+        if (!offer.isSendable()) {
             return false;
         }
         // Re-checked here as well as in the backlog query: the customer can come
@@ -79,15 +72,16 @@ public class OfferSendService {
             // correlated by offer ID. It is scrubbed first — an SMTP rejection
             // routinely quotes the recipient back at us (NFR-4).
             offer.markFailed(e.getCode());
-            log.warn("Offer delivery failed: offerId={} customerId={} code={} detail={}",
-                    offerId, customer.getId(), e.getCode(), Redact.scrub(e.getMessage()));
+            log.warn("Offer delivery failed: offerId={} customerId={} code={} attempt={} willRetry={} detail={}",
+                    offerId, customer.getId(), e.getCode(), offer.getSendAttempts(),
+                    offer.isRetriable(), Redact.scrub(e.getMessage()));
             return false;
         } catch (RuntimeException e) {
             offer.markFailed(OfferFailureCode.UNKNOWN_ERROR);
             // Rendered and scrubbed rather than handed to the logger, which
             // would print the message verbatim above the frames (NFR-4).
-            log.error("Offer delivery threw an unmapped error: offerId={} customerId={} cause={}",
-                    offerId, customer.getId(), Redact.scrubStackTrace(e));
+            log.error("Offer delivery threw an unmapped error: offerId={} customerId={} attempt={} cause={}",
+                    offerId, customer.getId(), offer.getSendAttempts(), Redact.scrubStackTrace(e));
             return false;
         }
     }

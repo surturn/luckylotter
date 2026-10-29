@@ -5,7 +5,11 @@ import com.lucklotter.domain.DealType;
 import com.lucklotter.domain.Offer;
 import com.lucklotter.domain.OfferFailureCode;
 import jakarta.mail.MessagingException;
+import jakarta.mail.SendFailedException;
+import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.MimeMessage;
+import org.eclipse.angus.mail.smtp.SMTPAddressFailedException;
+import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,8 +23,11 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.net.SocketTimeoutException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Delivers offers by email (FR-5).
@@ -68,14 +75,21 @@ public class EmailNotificationSender implements NotificationSender {
             helper.setSubject(subject(customer, businessName));
             helper.setText(body(offer, customer, businessName), true);
             mailSender.send(message);
-        } catch (MessagingException | MailAuthenticationException e) {
+        } catch (MailAuthenticationException e) {
+            // Our own credentials were refused: a configuration problem that
+            // affects every offer, not something about this customer.
+            throw new NotificationException(OfferFailureCode.SENDER_REJECTED,
+                    "SMTP authentication failed: " + e.getMessage(), e);
+        } catch (AddressException e) {
+            // The stored address does not parse. A retry would fail identically.
+            throw new NotificationException(OfferFailureCode.INVALID_EMAIL_ADDRESS,
+                    "The stored address is malformed: " + e.getMessage(), e);
+        } catch (MessagingException e) {
             throw new NotificationException(OfferFailureCode.SENDER_REJECTED,
                     "SMTP rejected the message: " + e.getMessage(), e);
         } catch (MailSendException e) {
-            // Usually a bad address or a refused recipient. Retriable, because
-            // ingesting a corrected address should let the next attempt work.
-            throw new NotificationException(OfferFailureCode.INVALID_EMAIL_ADDRESS,
-                    "SMTP could not deliver to the stored address: " + e.getMessage(), e);
+            throw new NotificationException(classify(e),
+                    "SMTP could not deliver: " + e.getMessage(), e);
         } catch (MailException e) {
             throw new NotificationException(OfferFailureCode.SENDER_UNAVAILABLE,
                     "Mail transport unavailable: " + e.getMessage(), e);
@@ -86,6 +100,45 @@ public class EmailNotificationSender implements NotificationSender {
         // forbids.
         log.info("Offer email accepted by SMTP: offerId={} customerId={}",
                 offer.getId(), customer.getId());
+    }
+
+    /**
+     * Works out what a {@link MailSendException} really was.
+     *
+     * <p>Spring throws it for two very different things: the server refusing a
+     * recipient, and the server not being reachable at all ("Mail server
+     * connection failed"). Treating both as a bad address is not harmless. A bad
+     * address is never retried, so one SMTP outage would permanently fail every
+     * offer in that night's batch.
+     *
+     * <p>Only an address the server named as invalid, with a permanent (5xx)
+     * answer, counts as a bad address. A 4xx reply such as a full mailbox or
+     * greylisting is temporary, and everything else is the transport.
+     */
+    static OfferFailureCode classify(MailSendException e) {
+        List<Throwable> roots = new ArrayList<>(e.getFailedMessages().values());
+        if (e.getCause() != null) {
+            roots.add(e.getCause());
+        }
+        boolean invalidAddress = false;
+        for (Throwable root : roots) {
+            for (Throwable t = root; t != null; t = t.getCause()) {
+                if (t instanceof SocketTimeoutException) {
+                    return OfferFailureCode.SENDER_TIMEOUT;
+                }
+                if (t instanceof SMTPSendFailedException smtp
+                        && smtp.getReturnCode() >= 400 && smtp.getReturnCode() < 500) {
+                    return OfferFailureCode.SENDER_UNAVAILABLE;
+                }
+                if (t instanceof SMTPAddressFailedException
+                        || (t instanceof SendFailedException sent
+                            && sent.getInvalidAddresses() != null
+                            && sent.getInvalidAddresses().length > 0)) {
+                    invalidAddress = true;
+                }
+            }
+        }
+        return invalidAddress ? OfferFailureCode.INVALID_EMAIL_ADDRESS : OfferFailureCode.SENDER_UNAVAILABLE;
     }
 
     /**

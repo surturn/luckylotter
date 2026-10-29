@@ -12,7 +12,11 @@ public enum OfferStatus {
     PENDING,
     /** Handed to the {@code NotificationSender} successfully. */
     SENT,
-    /** A send was attempted and threw. Retriable. */
+    /**
+     * A send was attempted and threw. Retried by later scans, but only within
+     * {@link OfferRetryPolicy}: a bounded number of attempts, and never for a
+     * failure the stored contact detail caused.
+     */
     FAILED,
     /** Terminal: the customer has neither contact_email nor contact_phone. */
     NO_CONTACT,
@@ -29,5 +33,15 @@ public enum OfferStatus {
      * anything would look again, and quietly sending a month-old win-back is
      * worse than not sending it.
      */
-    SUPPRESSED_BUDGET
+    SUPPRESSED_BUDGET,
+    /**
+     * Terminal: the customer came back, and their flag resolved, while this offer
+     * was still waiting to be sent or to be retried.
+     *
+     * <p>Closed rather than left {@link #PENDING}: a win-back email to someone who
+     * walked in yesterday is worse than none. Carries no failure code, because
+     * nothing failed, and never counts against the budget, because it will
+     * never reach anyone.
+     */
+    SUPPRESSED_RETURNED
 }

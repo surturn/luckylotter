@@ -3,7 +3,6 @@ package com.lucklotter.service;
 import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.FlagStatus;
 import com.lucklotter.domain.Offer;
-import com.lucklotter.domain.OfferStatus;
 import com.lucklotter.domain.OverdueBand;
 import com.lucklotter.domain.RetentionConstants;
 import com.lucklotter.domain.RetentionFlag;
@@ -171,16 +170,6 @@ public class FlagQueryService {
                 .toList();
     }
 
-    /**
-     * How many of this business's flagged customers can't be reached (FR-5).
-     * Surfacing the number is the point of the {@code NO_CONTACT} status — it
-     * measures how much of their POS data lacks contact details.
-     */
-    @Transactional(readOnly = true)
-    public long countUncontactable(UUID businessId) {
-        return offers.countByBusinessIdAndStatus(businessId, OfferStatus.NO_CONTACT);
-    }
-
     private static FlagSummaryResponse toSummary(RetentionFlag flag, FlagActionRow action) {
         Customer customer = flag.getCustomer();
         Offer offer = flag.getOffer();
@@ -265,7 +254,10 @@ public class FlagQueryService {
         return switch (offer.getStatus()) {
             case NO_CONTACT -> "No way to reach them — add an email or phone";
             case SUPPRESSED_BUDGET -> "Budget reached — nothing sent";
-            case FAILED -> "Delivery failed — will retry";
+            case SUPPRESSED_RETURNED -> "Came back before the offer went out";
+            case FAILED -> offer.isRetriable()
+                    ? "Delivery failed — will retry"
+                    : "Delivery failed — not retrying";
             case PENDING -> "Queued to send";
             case SENT -> "Offer sent — awaiting their visit";
         };
@@ -300,6 +292,7 @@ public class FlagQueryService {
                 offer == null ? null : offer.getRedemptionCode(),
                 offer == null ? null : offer.getFailureCode(),
                 offer == null ? null : offer.getSentAt(),
+                offer == null ? null : offer.isRetriable(),
                 returned == null ? null : returned.getOccurredAt(),
                 returned == null ? null : returned.getAmount());
     }

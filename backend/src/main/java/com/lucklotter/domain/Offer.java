@@ -79,6 +79,10 @@ public class Offer {
     @Column(name = "sent_at")
     private Instant sentAt;
 
+    /** Delivery attempts actually made, successful or not (see {@link OfferRetryPolicy}). */
+    @Column(name = "send_attempts", nullable = false)
+    private int sendAttempts = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -94,6 +98,30 @@ public class Offer {
         this.status = OfferStatus.SENT;
         this.sentAt = at;
         this.failureCode = null;
+        this.sendAttempts++;
+    }
+
+    /**
+     * Whether a later scan should try this offer again: it failed, it has
+     * attempts left, and the failure was not one a retry cannot cure.
+     */
+    public boolean isRetriable() {
+        return status == OfferStatus.FAILED
+                && sendAttempts < OfferRetryPolicy.MAX_SEND_ATTEMPTS
+                && !OfferRetryPolicy.isPermanent(failureCode);
+    }
+
+    /** Whether the dispatcher may attempt this offer now. */
+    public boolean isSendable() {
+        return status == OfferStatus.PENDING || isRetriable();
+    }
+
+    /**
+     * Still waiting on delivery: never sent, and either queued or failed. These
+     * are the offers a returning customer makes pointless.
+     */
+    public boolean isUnsent() {
+        return status == OfferStatus.PENDING || status == OfferStatus.FAILED;
     }
 
     /**
@@ -104,6 +132,25 @@ public class Offer {
         this.status = OfferStatus.FAILED;
         this.sentAt = null;
         this.failureCode = Objects.requireNonNull(code, "failureCode is required for a FAILED offer");
+        this.sendAttempts++;
+    }
+
+    /**
+     * The customer's contact detail changed after a failure, so the earlier
+     * attempts say nothing about the new address. Starts the offer over.
+     */
+    public void reopenForRetry() {
+        this.status = OfferStatus.PENDING;
+        this.failureCode = null;
+        this.sentAt = null;
+        this.sendAttempts = 0;
+    }
+
+    /** Terminal: the customer returned before this offer was delivered. */
+    public void markSuppressedReturned() {
+        this.status = OfferStatus.SUPPRESSED_RETURNED;
+        this.sentAt = null;
+        this.failureCode = null;
     }
 
     /** Terminal: the customer has no email and no phone to send to. */

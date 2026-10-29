@@ -12,6 +12,9 @@ import { FlagStatus, OfferStatus } from '../core/api.models';
  * `SUPPRESSED_BUDGET` is deliberately neutral rather than amber or red. Nothing
  * went wrong — the business set a cap and the cap held. It still needs a label
  * an admin can act on, since the remedy (raise the cap) is theirs (FR-4).
+ *
+ * `SUPPRESSED_RETURNED` is neutral for the same reason, and because it is good
+ * news: the customer came back without needing the offer.
  */
 @Component({
   selector: 'app-status-pill',
@@ -30,6 +33,8 @@ export class StatusPillComponent {
         return 'No contact details';
       case 'SUPPRESSED_BUDGET':
         return 'Budget reached';
+      case 'SUPPRESSED_RETURNED':
+        return 'Came back first';
       default:
         return this.status.charAt(0) + this.status.slice(1).toLowerCase();
     }
@@ -41,6 +46,8 @@ export class StatusPillComponent {
         return 'No contact details on file — this offer cannot be sent';
       case 'SUPPRESSED_BUDGET':
         return 'Your offer cap for this period was already used — this offer was not sent';
+      case 'SUPPRESSED_RETURNED':
+        return 'The customer came back before this offer was sent, so it was not sent';
       default:
         return this.label;
     }

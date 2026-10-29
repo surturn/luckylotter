@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /** Flagged-customer views for the admin dashboard (FR-7, §10). */
@@ -50,15 +49,6 @@ public class FlagController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size) {
         return flagQueryService.list(admin.businessId(), status, sort, page, size);
-    }
-
-    /**
-     * Coverage counter for the dashboard (FR-5): how many flagged customers the
-     * business has no way to contact.
-     */
-    @GetMapping("/stats")
-    public Map<String, Long> stats(@AuthenticationPrincipal AdminPrincipal admin) {
-        return Map.of("uncontactableOffers", flagQueryService.countUncontactable(admin.businessId()));
     }
 
     /**

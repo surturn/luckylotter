@@ -1,12 +1,14 @@
 package com.lucklotter.repo;
 
 import com.lucklotter.domain.Offer;
+import com.lucklotter.domain.OfferFailureCode;
 import com.lucklotter.domain.OfferStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,22 +18,28 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
     Optional<Offer> findByFlagId(UUID flagId);
 
     /**
-     * Sendable backlog: the given statuses, and only while the flag behind the
-     * offer is still open.
+     * What the dispatcher may attempt now: queued offers, plus failed ones that
+     * are still inside the retry policy, and only while the flag behind the
+     * offer is open.
      *
-     * <p>A customer who has come back has had their flag resolved, and a "we've
-     * missed you" email to someone who walked in yesterday is worse than no
-     * email. It matters most for the retry backlog: an offer that failed on
-     * Monday and is retried on Friday can outlive the lapse it was written for.
+     * <p>The flag condition matters most for the retry backlog: an offer that
+     * failed on Monday and is retried on Friday can outlive the lapse it was
+     * written for. The attempt cap and the permanent-failure list keep a dead
+     * address from being mailed every night. {@code Offer.isSendable} is the
+     * same rule in code; the dispatcher re-checks it per offer.
      */
     @Query("""
             SELECT o FROM Offer o
             WHERE o.business.id = :businessId
-              AND o.status IN :statuses
               AND o.flag.status = com.lucklotter.domain.FlagStatus.ACTIVE
+              AND (o.status = com.lucklotter.domain.OfferStatus.PENDING
+                   OR (o.status = com.lucklotter.domain.OfferStatus.FAILED
+                       AND o.sendAttempts < :maxAttempts
+                       AND o.failureCode NOT IN :permanentFailures))
             """)
     List<Offer> findSendable(@Param("businessId") UUID businessId,
-                             @Param("statuses") List<OfferStatus> statuses);
+                             @Param("maxAttempts") int maxAttempts,
+                             @Param("permanentFailures") Collection<OfferFailureCode> permanentFailures);
 
     long countByBusinessIdAndStatus(UUID businessId, OfferStatus status);
 
@@ -77,8 +85,9 @@ public interface OfferRepository extends JpaRepository<Offer, UUID> {
      * it, so counting deliveries would leave a whole batch invisible to the
      * ceiling and let the next scan spend the same budget again.
      *
-     * <p>{@code NO_CONTACT} and {@code SUPPRESSED_BUDGET} are excluded because
-     * neither will ever reach anyone: charging the budget for them would let a
+     * <p>{@code NO_CONTACT}, {@code SUPPRESSED_BUDGET} and
+     * {@code SUPPRESSED_RETURNED} are excluded because none will ever reach
+     * anyone: charging the budget for them would let a
      * business full of contactless customers exhaust a cap without a single
      * offer being delivered. {@code FAILED} does count — it was attempted, and
      * it is still in the retry backlog.
