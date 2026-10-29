@@ -1,0 +1,18 @@
+# Operator command-line mode (see OperatorCommandRunner). A command is a
+# short-lived run of the same image, so it must not start anything long-lived:
+# no scheduled scan, no demo seed.
+#
+# The web stack stays on, bound to an ephemeral port and torn down as soon as
+# the command exits. Turning it off (web-application-type: none) would also
+# switch off Spring Security's web configuration, which SecurityConfig needs to
+# build, and a random port is simpler than excluding half the application.
+server:
+  port: 0
+spring:
+  main:
+    banner-mode: "off"
+lucklotter:
+  retention:
+    scan-cron: "-"   # Spring's "disabled" cron value
+  seed:
+    enabled: false

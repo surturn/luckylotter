@@ -1,5 +1,7 @@
 package com.lucklotter.security;
 
+import com.lucklotter.domain.AdminUser;
+import com.lucklotter.repo.AdminUserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +15,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 
 /**
  * Authenticates a request from its {@code Authorization: Bearer <jwt>} header
@@ -29,10 +33,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String HEADER = "Authorization";
     private static final String PREFIX = "Bearer ";
 
-    private final JwtService jwtService;
+    /** The one route a temporary-password account may call. */
+    static final String CHANGE_PASSWORD_PATH = "/v1/auth/change-password";
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    private final JwtService jwtService;
+    private final AdminUserRepository adminUsers;
+
+    public JwtAuthenticationFilter(JwtService jwtService, AdminUserRepository adminUsers) {
         this.jwtService = jwtService;
+        this.adminUsers = adminUsers;
     }
 
     @Override
@@ -42,12 +51,37 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(HEADER);
         if (header != null && header.startsWith(PREFIX)
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
-            jwtService.parse(header.substring(PREFIX.length()).trim()).ifPresent(principal -> {
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        principal, null, AuthorityUtils.createAuthorityList("ROLE_ADMIN"));
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            });
+            Optional<JwtService.VerifiedToken> verified =
+                    jwtService.verify(header.substring(PREFIX.length()).trim());
+            if (verified.isPresent()) {
+                AdminUser user = adminUsers.findById(verified.get().principal().adminUserId())
+                        .orElse(null);
+                // A valid signature is not enough. The account can have been
+                // deactivated, or its password changed or reset, since the
+                // token was issued, and a stateless token can't know. This is
+                // one primary-key read per request. Compared at second
+                // precision because that is all a JWT's issue time carries.
+                boolean stillValid = user != null
+                        && user.isActive()
+                        && !verified.get().issuedAt()
+                                .isBefore(user.getPasswordChangedAt().truncatedTo(ChronoUnit.SECONDS));
+                if (stillValid) {
+                    // Request URI, not servlet path: under MockMvc the servlet
+                    // path is empty, and a gate that only works in production
+                    // can't be tested.
+                    String path = request.getRequestURI().substring(request.getContextPath().length());
+                    if (user.isMustChangePassword() && !CHANGE_PASSWORD_PATH.equals(path)) {
+                        // Distinct from 401 so the client does not treat it as
+                        // a dead session and sign the admin out.
+                        response.sendError(HttpServletResponse.SC_FORBIDDEN, "Password change required");
+                        return;
+                    }
+                    var authentication = new UsernamePasswordAuthenticationToken(
+                            verified.get().principal(), null, AuthorityUtils.createAuthorityList("ROLE_ADMIN"));
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
+            }
         }
         chain.doFilter(request, response);
     }

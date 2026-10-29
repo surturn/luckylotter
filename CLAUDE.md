@@ -19,10 +19,11 @@ Spec: `docs/lucklotter.md`. Progress: `PRD-TODOS.md` (update it as you finish it
 - Migrations only through Flyway, never edit an applied migration.
 
 ## Deploy
-Not deployed yet, local only. It deploys to Railway first (services plus PostgreSQL, from GitHub). Sydney plans to move major projects to a Contabo VPS later, so keep the Docker Compose setup working. The README's Coolify mention is outdated, update it when deploying.
+Not deployed yet, local only. Decided 2026-10-29: it runs as a managed service for about 10 businesses on a Contabo VPS with Docker Compose, not Railway. Businesses are provisioned by the operator CLI (see README), never over HTTP. The README's Coolify mention is outdated, update it when deploying.
 
 ## Session state (update at the end of each session)
 - 2026-10-09: retention diagnostic built and shown on an operator page, reporting-period picker added, demo data expanded.
+- 2026-10-29: operator provisioning and password lifecycle built (V8, CLI, change-password, forced change, session invalidation). 148 tests. Next: unsubscribe and opt-out (opted-out customers stay flagged as `SUPPRESSED_OPTOUT`), then the Contabo deploy. See `PRD-TODOS.md` "Service operation".
 - Next: see unchecked items in `PRD-TODOS.md`.
 
 ## Verify (see global rule: drive it like a user, mobile 390x844 and desktop 1440x900, screenshots, fix until it works)

@@ -6,6 +6,7 @@ import { LoginResponse } from './api.models';
 
 const TOKEN_KEY = 'lucklotter.token';
 const BUSINESS_KEY = 'lucklotter.business';
+const MUST_CHANGE_KEY = 'lucklotter.mustChangePassword';
 
 /**
  * Holds the admin session (FR-6).
@@ -20,6 +21,8 @@ export class AuthService {
   private readonly token = signal<string | null>(localStorage.getItem(TOKEN_KEY));
   readonly businessName = signal<string | null>(localStorage.getItem(BUSINESS_KEY));
   readonly isLoggedIn = computed(() => this.token() !== null);
+  /** True while the account is on a temporary password and can do nothing else. */
+  readonly mustChangePassword = signal(localStorage.getItem(MUST_CHANGE_KEY) === 'true');
 
   constructor(private readonly http: HttpClient, private readonly router: Router) {}
 
@@ -29,11 +32,20 @@ export class AuthService {
       .pipe(tap((response) => this.store(response)));
   }
 
+  /** Returns a fresh session: the old token stops working the moment this succeeds. */
+  changePassword(currentPassword: string, newPassword: string): Observable<LoginResponse> {
+    return this.http
+      .post<LoginResponse>('/v1/auth/change-password', { currentPassword, newPassword })
+      .pipe(tap((response) => this.store(response)));
+  }
+
   logout(): void {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(BUSINESS_KEY);
+    localStorage.removeItem(MUST_CHANGE_KEY);
     this.token.set(null);
     this.businessName.set(null);
+    this.mustChangePassword.set(false);
     this.router.navigate(['/login']);
   }
 
@@ -44,7 +56,9 @@ export class AuthService {
   private store(response: LoginResponse): void {
     localStorage.setItem(TOKEN_KEY, response.token);
     localStorage.setItem(BUSINESS_KEY, response.businessName);
+    localStorage.setItem(MUST_CHANGE_KEY, String(response.mustChangePassword));
     this.token.set(response.token);
     this.businessName.set(response.businessName);
+    this.mustChangePassword.set(response.mustChangePassword);
   }
 }

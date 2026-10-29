@@ -1,9 +1,12 @@
 package com.lucklotter.web;
 
+import com.lucklotter.security.AdminPrincipal;
 import com.lucklotter.service.AuthService;
+import com.lucklotter.web.dto.ChangePasswordRequest;
 import com.lucklotter.web.dto.LoginRequest;
 import com.lucklotter.web.dto.LoginResponse;
 import jakarta.validation.Valid;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,5 +26,11 @@ public class AuthController {
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/change-password")
+    public LoginResponse changePassword(@AuthenticationPrincipal AdminPrincipal admin,
+                                        @Valid @RequestBody ChangePasswordRequest request) {
+        return authService.changePassword(admin, request);
     }
 }

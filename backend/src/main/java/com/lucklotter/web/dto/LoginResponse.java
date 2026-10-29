@@ -12,6 +12,7 @@ public record LoginResponse(
     String token,
     Instant expiresAt,
     UUID businessId,
-    String businessName
+    String businessName,
+    boolean mustChangePassword
 ) {
 }

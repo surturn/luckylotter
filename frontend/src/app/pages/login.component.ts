@@ -118,7 +118,8 @@ export class LoginComponent {
     this.error.set(null);
     const { email, password } = this.form.getRawValue();
     this.auth.login(email, password).subscribe({
-      next: () => this.router.navigate(['/flags']),
+      next: (response) =>
+        this.router.navigate([response.mustChangePassword ? '/change-password' : '/flags']),
       error: (response) => {
         this.busy.set(false);
         // Says what to do next, not just that something was invalid.

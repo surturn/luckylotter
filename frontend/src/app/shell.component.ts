@@ -103,6 +103,7 @@ import { ToastHostComponent } from './shared/toast-host.component';
               <span class="top-tenant-name">{{ business }}</span>
             </span>
           }
+          <button type="button" class="btn-secondary" routerLink="/change-password">Change password</button>
           <button type="button" class="btn-secondary" (click)="auth.logout()">Sign out</button>
         </header>
 
@@ -285,7 +286,11 @@ import { ToastHostComponent } from './shared/toast-host.component';
 
     @media (max-width: 560px) {
       .top-tenant-label { display: none; }
-      .top-tenant { max-width: 140px; }
+      .top-tenant { max-width: 96px; }
+      /* Two buttons and a tenant chip in 390px: keep each label on one line
+         and tighten the padding rather than letting the labels wrap. */
+      .top { padding: var(--space-3) var(--space-4); gap: var(--space-2); }
+      .top button { white-space: nowrap; padding: 0 var(--space-3); font-size: var(--text-sm); }
     }
   `],
 })

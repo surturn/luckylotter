@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/auth.guard';
+import { authGuard, signedInGuard } from './core/auth.guard';
 import { ShellComponent } from './shell.component';
 
 /**
@@ -11,6 +11,12 @@ export const routes: Routes = [
   {
     path: 'login',
     loadComponent: () => import('./pages/login.component').then((m) => m.LoginComponent),
+  },
+  {
+    path: 'change-password',
+    canActivate: [signedInGuard],
+    loadComponent: () =>
+      import('./pages/change-password.component').then((m) => m.ChangePasswordComponent),
   },
   {
     path: '',

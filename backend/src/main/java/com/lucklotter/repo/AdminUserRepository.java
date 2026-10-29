@@ -9,4 +9,7 @@ import java.util.UUID;
 public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
 
     Optional<AdminUser> findByEmailIgnoreCaseAndActiveTrue(String email);
+
+    /** Includes deactivated accounts, so provisioning can't reuse their address. */
+    Optional<AdminUser> findByEmailIgnoreCase(String email);
 }

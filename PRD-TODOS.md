@@ -282,6 +282,23 @@ existed.
 
 ---
 
+## Service operation — operator provisioning (2026-10-29)
+
+Decided: the product is run as a managed service for ~10 businesses, deployed to
+a Contabo VPS with Docker Compose (not Railway).
+
+- [x] Operator CLI (`operator` profile): `create-business`, `reset-password`, `deactivate-admin`. A CLI rather than an endpoint: no platform-admin role above the tenants, no new HTTP surface (V8, `ProvisioningService`, `OperatorCommandRunner`)
+- [x] `POST /v1/auth/change-password`; temporary passwords force a change. The gate is in the JWT filter (403 for everything but change-password), not just the UI redirect
+- [x] A password change or reset ends older sessions (`password_changed_at` vs the token's issue time) and deactivation is immediate, at the cost of one primary-key read per request
+- [x] Tests: `PasswordLifecycleTest` (10), `ProvisioningServiceTest` (6). 148 green
+- [x] Driven in a browser at 390x844 and 1440x900 against a separate Compose project
+- [ ] Item 2 next: unsubscribe link and `List-Unsubscribe` headers, per-customer opt-out, `SUPPRESSED_OPTOUT` offer status (opted-out customers are still flagged, so the dashboard stays truthful), business-name sender and Reply-To (`businesses.reply_to_email` already exists from V8), email footer
+- [ ] Not code: a data processing agreement per client, and check whether the operator must register as a processor with Kenya's Data Protection Commissioner
+- [ ] Contabo deploy: prod compose without Mailpit and without published DB or backend ports, Caddy for TLS, SMTP relay on 587 (Contabo is believed to block outbound port 25, verify), SPF/DKIM/DMARC on the owned domain. Replaces the Coolify and Railway notes
+- [ ] Login rate limiting, backups, Sentry, no replicated scan (ShedLock if more than one instance)
+
+---
+
 ## M4 — Pilot readiness
 
 ### 🚧 Hard gates — M4 cannot be declared done while any of these is open

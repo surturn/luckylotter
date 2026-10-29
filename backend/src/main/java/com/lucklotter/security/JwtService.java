@@ -48,6 +48,10 @@ public class JwtService {
     public record IssuedToken(String token, Instant expiresAt) {
     }
 
+    /** A verified token: who it names and when it was issued. */
+    public record VerifiedToken(AdminPrincipal principal, Instant issuedAt) {
+    }
+
     public IssuedToken issue(AdminUser user) {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(ttl);
@@ -64,23 +68,29 @@ public class JwtService {
     /**
      * Verifies signature and expiry.
      *
-     * @return the principal, or empty if the token is absent, malformed,
-     *         expired, or signed with the wrong key — the caller cannot tell
+     * @return the verified token, or empty if it is absent, malformed,
+     *         expired, or signed with the wrong key - the caller cannot tell
      *         which, and shouldn't be able to
      */
-    public Optional<AdminPrincipal> parse(String token) {
+    public Optional<VerifiedToken> verify(String token) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            return Optional.of(new AdminPrincipal(
+            AdminPrincipal principal = new AdminPrincipal(
                     UUID.fromString(claims.getSubject()),
                     UUID.fromString(claims.get(CLAIM_BUSINESS_ID, String.class)),
-                    null));
+                    null);
+            return Optional.of(new VerifiedToken(principal, claims.getIssuedAt().toInstant()));
         } catch (JwtException | IllegalArgumentException | NullPointerException e) {
             return Optional.empty();
         }
+    }
+
+    /** Signature and expiry only; see {@link #verify} for the full contract. */
+    public Optional<AdminPrincipal> parse(String token) {
+        return verify(token).map(VerifiedToken::principal);
     }
 }

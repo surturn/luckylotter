@@ -45,6 +45,27 @@ public class AdminUser {
     @Column(nullable = false)
     private boolean active = true;
 
+    /**
+     * Set when the operator issues a temporary password. While true the account
+     * can do nothing except change its password.
+     */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
+    /**
+     * Tokens issued before this instant are refused. Moving it forward is how a
+     * password change or reset ends every session that used the old password.
+     */
+    @Column(name = "password_changed_at", nullable = false)
+    private Instant passwordChangedAt = Instant.now();
+
+    /** Replaces the password and ends every session issued before now. */
+    public void replacePassword(String newHash, boolean forceChangeOnNextLogin) {
+        this.passwordHash = newHash;
+        this.mustChangePassword = forceChangeOnNextLogin;
+        this.passwordChangedAt = Instant.now();
+    }
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 

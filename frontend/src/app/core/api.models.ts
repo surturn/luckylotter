@@ -37,6 +37,7 @@ export interface LoginResponse {
   expiresAt: string;
   businessId: string;
   businessName: string;
+  mustChangePassword: boolean;
 }
 
 export interface BusinessConfig {

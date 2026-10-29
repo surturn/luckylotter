@@ -105,6 +105,10 @@ public class Business {
     @Column(name = "timezone", nullable = false, length = 64)
     private String timezone = "UTC";
 
+    /** Where customer replies to an offer email are directed. Optional. */
+    @Column(name = "reply_to_email", length = 255)
+    private String replyToEmail;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "default_deal_type", nullable = false, length = 24)
     private DealType defaultDealType = DealType.PERCENT_OFF;

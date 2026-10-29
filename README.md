@@ -136,6 +136,30 @@ value — `/v1/transactions` treats the `businessId` in its payload as an
 assertion to check and refuses a mismatch. Another business's flag ID reads as
 404, not 403, so the API never confirms that someone else's row exists.
 
+## Running it as a service (operator commands)
+
+Businesses and their first admin are created by the operator on the server,
+never over HTTP. A command is a short-lived run of the same image under the
+`operator` profile (no scheduled scan, no seed, ephemeral port):
+
+```bash
+# Create a business and its first admin. Prints a temporary password once.
+docker compose run --rm --no-deps backend --spring.profiles.active=operator \
+  create-business --name="Kaldi Coffee" --admin-email=owner@example.com \
+  --currency=KES --timezone=Africa/Nairobi --deal-value=15 \
+  [--deal-type=PERCENT_OFF|FIXED_AMOUNT_OFF|FREE_ITEM] [--reply-to=hello@example.com]
+
+# New temporary password; ends every live session for that admin.
+... reset-password --email=owner@example.com
+
+# Locks the admin out on their very next request.
+... deactivate-admin --email=owner@example.com
+```
+
+The temporary password goes to stdout only, never the log. The admin is held on
+the change-password screen until they choose their own (the API answers 403 to
+everything else), and a change or reset invalidates every older token.
+
 ## Development
 
 Both builds run in containers, so neither a JDK nor Node is required locally.
