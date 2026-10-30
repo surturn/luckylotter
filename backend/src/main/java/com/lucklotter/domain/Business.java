@@ -105,6 +105,14 @@ public class Business {
     @Column(name = "timezone", nullable = false, length = 64)
     private String timezone = "UTC";
 
+    /**
+     * The kind of business. Chooses the starting settings and the vocabulary; it
+     * does not change how the engine behaves (see {@link BusinessType}).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "business_type", nullable = false, length = 24)
+    private BusinessType businessType = BusinessType.CAFE_RESTAURANT;
+
     /** Where customer replies to an offer email are directed. Optional. */
     @Column(name = "reply_to_email", length = 255)
     private String replyToEmail;
@@ -136,6 +144,23 @@ public class Business {
      *                        {@link RetentionConstants#MIN_TRANSACTIONS}
      *                        transactions
      */
+    /**
+     * Takes the starting settings for a kind of business. The sensitivity
+     * multiplier, cooldown multiplier and offer cap are the same for every type
+     * and are left alone, as is the deal value, which is the business's own
+     * decision.
+     */
+    public void applyPreset(BusinessType type) {
+        BusinessType.Preset preset = type.preset();
+        this.businessType = type;
+        this.minThresholdDays = preset.minThresholdDays();
+        this.maxThresholdDays = preset.maxThresholdDays();
+        this.offerCooldownDays = preset.offerCooldownDays();
+        this.offerBudgetWindowDays = preset.offerBudgetWindowDays();
+        this.recoveryWindowDays = preset.recoveryWindowDays();
+        this.defaultDealType = preset.defaultDealType();
+    }
+
     public BigDecimal thresholdDaysFor(BigDecimal avgIntervalDays) {
         BigDecimal raw = avgIntervalDays.multiply(sensitivityMultiplier);
         BigDecimal min = BigDecimal.valueOf(minThresholdDays);

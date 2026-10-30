@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/auth.service';
+import { VocabularyService } from './core/vocabulary.service';
 import { ToastHostComponent } from './shared/toast-host.component';
 
 /**
@@ -296,4 +297,10 @@ import { ToastHostComponent } from './shared/toast-host.component';
 })
 export class ShellComponent {
   readonly auth = inject(AuthService);
+  private readonly vocabulary = inject(VocabularyService);
+
+  constructor() {
+    // The words for this trade, once, for every screen inside the shell.
+    this.vocabulary.load();
+  }
 }

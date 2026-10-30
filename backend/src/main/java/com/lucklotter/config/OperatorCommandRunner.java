@@ -1,5 +1,6 @@
 package com.lucklotter.config;
 
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.service.ProvisioningService;
 import com.lucklotter.service.ValidationException;
@@ -35,8 +36,10 @@ public class OperatorCommandRunner implements ApplicationRunner {
 
     private static final String USAGE = """
             Commands:
-              create-business --name= --admin-email= --currency= --timezone= --deal-value=
+              create-business --name= --type= --admin-email= --currency= --timezone= --deal-value=
                               [--deal-type=PERCENT_OFF|FIXED_AMOUNT_OFF|FREE_ITEM] [--reply-to=]
+                              --type is one of: cafe-restaurant, barbershop, hair-salon,
+                              spa-wellness, other. It sets the starting settings and wording.
               reset-password   --email=
               deactivate-admin --email=
             """;
@@ -66,6 +69,7 @@ public class OperatorCommandRunner implements ApplicationRunner {
                 case "create-business" -> {
                     var result = provisioning.createBusiness(new ProvisioningService.NewBusiness(
                             option(args, "name"),
+                            businessType(option(args, "type")),
                             option(args, "admin-email"),
                             option(args, "currency"),
                             option(args, "timezone"),
@@ -104,6 +108,17 @@ public class OperatorCommandRunner implements ApplicationRunner {
     private static String option(ApplicationArguments args, String name) {
         List<String> values = args.getOptionValues(name);
         return values == null || values.isEmpty() ? null : values.get(0);
+    }
+
+    private static BusinessType businessType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return BusinessType.parse(value);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("type must be one of: " + ProvisioningService.validTypes());
+        }
     }
 
     private static DealType dealType(String value) {

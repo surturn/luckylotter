@@ -2,6 +2,7 @@ package com.lucklotter.config;
 
 import com.lucklotter.domain.AdminUser;
 import com.lucklotter.domain.Business;
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.domain.Offer;
@@ -102,6 +103,10 @@ public class DemoDataSeeder implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final String adminEmail;
     private final String adminPassword;
+    private final Flavour flavour;
+
+    /** The business being seeded: its own clamps decide who is quiet. */
+    private Business seeded;
 
     public DemoDataSeeder(BusinessRepository businesses,
                           AdminUserRepository adminUsers,
@@ -113,7 +118,8 @@ public class DemoDataSeeder implements CommandLineRunner {
                           RedemptionCodeGenerator redemptionCodes,
                           PasswordEncoder passwordEncoder,
                           @Value("${lucklotter.seed.admin-email}") String adminEmail,
-                          @Value("${lucklotter.seed.admin-password}") String adminPassword) {
+                          @Value("${lucklotter.seed.admin-password}") String adminPassword,
+                          @Value("${lucklotter.seed.type:cafe-restaurant}") String seedType) {
         this.businesses = businesses;
         this.adminUsers = adminUsers;
         this.customers = customers;
@@ -125,6 +131,58 @@ public class DemoDataSeeder implements CommandLineRunner {
         this.passwordEncoder = passwordEncoder;
         this.adminEmail = adminEmail;
         this.adminPassword = adminPassword;
+        this.flavour = flavourFor(BusinessType.parse(seedType));
+    }
+
+    /**
+     * What kind of business the demo is, which sets the scale of everything in it.
+     *
+     * <p>The named profiles and the crowd are written for a cafe: weekly regulars,
+     * baskets of a few hundred shillings. A barbershop, salon or spa is the same
+     * shape of problem on a slower clock and a bigger ticket, so a flavour does
+     * not rewrite the cast: it stretches every rhythm by {@code rhythmScale}, every
+     * spend by {@code spendScale}, and swaps the crowd's visit gaps for ones that
+     * look like that trade. Weekly becomes four-weekly for the barbershop,
+     * seven-weekly for the salon, nine-weekly for the spa.
+     *
+     * <p>The trigger itself is untouched. The demo business takes its clamps and
+     * recovery window from {@link BusinessType}'s preset, so what the demo shows
+     * is the same configuration a real client of that type would be given.
+     *
+     * @param usualItems what the first few named customers usually have, so the
+     *                   offer email in the inbox shows the vocabulary of the trade
+     */
+    private record Flavour(BusinessType type, String businessName, int rhythmScale,
+                           double spendScale, int[] cadences, String[] usualItems) {
+    }
+
+    private static final Flavour CAFE = new Flavour(BusinessType.CAFE_RESTAURANT,
+            "Kaldi's Coffee House", 1, 1.0,
+            new int[] {3, 4, 5, 7, 7, 7, 7, 10, 10, 14, 14, 14, 21, 21, 30, 30, 45, 60},
+            new String[] {"flat white", "cappuccino", "black tea", "mocha"});
+
+    private static final Flavour BARBERSHOP = new Flavour(BusinessType.BARBERSHOP,
+            "Kings Barbershop", 4, 2.0,
+            new int[] {14, 14, 21, 21, 21, 28, 28, 28, 28, 35, 35, 42, 42, 56, 70, 90},
+            new String[] {"skin fade", "beard trim", "classic cut", "line-up"});
+
+    private static final Flavour SALON = new Flavour(BusinessType.HAIR_SALON,
+            "Zuri Hair Studio", 7, 6.0,
+            new int[] {28, 35, 42, 42, 49, 49, 49, 56, 56, 63, 63, 70, 84, 91, 112, 140},
+            new String[] {"cut and blow-dry", "colour and gloss", "braids", "silk press"});
+
+    private static final Flavour SPA = new Flavour(BusinessType.SPA_WELLNESS,
+            "Serene Spa and Wellness", 9, 10.0,
+            new int[] {28, 35, 42, 42, 56, 56, 56, 63, 70, 84, 84, 91, 112, 140, 168, 180},
+            new String[] {"deep tissue massage", "signature facial", "manicure", "hot stone massage"});
+
+    private static Flavour flavourFor(BusinessType type) {
+        return switch (type) {
+            case BARBERSHOP -> BARBERSHOP;
+            case HAIR_SALON -> SALON;
+            case SPA_WELLNESS -> SPA;
+            case CAFE_RESTAURANT, OTHER -> CAFE;
+        };
     }
 
     /**
@@ -154,7 +212,8 @@ public class DemoDataSeeder implements CommandLineRunner {
      * a coffee and a pastry, and a handful come in for beans, cake and a round
      * for the table. That is the shape the priority score is trying to find, so
      * a dataset where everyone spends the same amount would leave its value
-     * component with nothing to rank.
+     * component with nothing to rank. The shape is kept for every flavour and
+     * only the scale changes ({@link Flavour#spendScale}).
      */
     private record SpendBand(int min, int max, int weight) {
     }
@@ -257,17 +316,6 @@ public class DemoDataSeeder implements CommandLineRunner {
      */
     private static final long CROWD_SEED = 20260813L;
 
-    /**
-     * Visit gaps, weighted by repetition.
-     *
-     * <p>Weekly and fortnightly dominate, which is what a café's regulars
-     * actually look like. The 60-day tail is there because a customer base has
-     * one, and because the trigger's clamp has to have something to clamp.
-     */
-    private static final int[] CADENCES = {
-        3, 4, 5, 7, 7, 7, 7, 10, 10, 14, 14, 14, 21, 21, 30, 30, 45, 60,
-    };
-
     private static final String[] GIVEN_NAMES = {
         "Alice", "Anne", "Beatrice", "Caroline", "Catherine", "Cynthia", "Dorothy",
         "Eunice", "Gladys", "Hannah", "Joyce", "Judith", "Mercy", "Miriam",
@@ -301,10 +349,12 @@ public class DemoDataSeeder implements CommandLineRunner {
         }
 
         Business business = new Business();
-        business.setName("Kaldi's Coffee House");
+        business.setName(flavour.businessName());
+        // The same starting settings a real client of this type is given.
+        business.applyPreset(flavour.type());
         business.setDefaultDealType(DealType.PERCENT_OFF);
         business.setDefaultDealValue(new BigDecimal("25.00"));
-        // The fixture is a Nairobi café, so it is denominated in shillings and
+        // The fixture is a Nairobi business, so it is denominated in shillings and
         // keeps Nairobi hours. Leaving the schema default here would put the
         // demo's revenue figures under a currency symbol that contradicts its
         // own phone numbers.
@@ -320,6 +370,7 @@ public class DemoDataSeeder implements CommandLineRunner {
         // it in Trigger settings and the next scan starts suppressing.
         business.setOfferCapPerWindow(250);
         businesses.save(business);
+        this.seeded = business;
 
         AdminUser admin = new AdminUser();
         admin.setBusiness(business);
@@ -338,8 +389,8 @@ public class DemoDataSeeder implements CommandLineRunner {
 
         // The admin's ID, not their address: the seed email comes from config and
         // in a non-demo deploy that is a real operator's inbox (NFR-4).
-        log.info("Seeded demo data: businessId={} customers={} transactions={} historicalFlags={} adminUserId={}",
-                business.getId(),
+        log.info("Seeded demo data: type={} businessId={} customers={} transactions={} historicalFlags={} adminUserId={}",
+                flavour.type(), business.getId(),
                 PROFILES.length + HISTORY.length + CROWD_SIZE + CROWD_HISTORY_SIZE,
                 transactionCount, HISTORY.length + CROWD_HISTORY_SIZE, admin.getId());
 
@@ -373,15 +424,17 @@ public class DemoDataSeeder implements CommandLineRunner {
     /** Customers whose current state the next scan will act on. */
     private int seedCurrentCustomers(Business business, Instant now) {
         int count = 0;
-        for (Profile profile : PROFILES) {
+        for (int index = 0; index < PROFILES.length; index++) {
+            Profile profile = PROFILES[index];
+            String usual = index < flavour.usualItems().length ? flavour.usualItems()[index] : null;
             for (int visit = 0; visit < profile.visits(); visit++) {
                 // Oldest first, ending `quietDays` ago.
-                int daysAgo = profile.quietDays()
-                        + profile.cadenceDays() * (profile.visits() - 1 - visit);
-                ingest(business, profile.ref(), profile.name(),
+                int daysAgo = stretch(profile.quietDays())
+                        + stretch(profile.cadenceDays()) * (profile.visits() - 1 - visit);
+                ingest(business, profile.ref(), profile.name(), usual,
                         "SEED-" + profile.ref() + "-" + visit,
                         now.minus(daysAgo, ChronoUnit.DAYS),
-                        amountFor(profile.spend()), profile.email(), profile.phone());
+                        amountFor(spent(profile.spend())), profile.email(), profile.phone());
                 count++;
             }
         }
@@ -400,26 +453,27 @@ public class DemoDataSeeder implements CommandLineRunner {
         int count = 0;
         for (History entry : HISTORY) {
             Instant flaggedAt = now.minus(entry.flaggedWeeksAgo() * 7L, ChronoUnit.DAYS);
+            int cadenceDays = stretch(entry.cadenceDays());
             // Six visits on cadence, finishing just over threshold before the flag.
             int visits = 6;
-            BigDecimal cadence = BigDecimal.valueOf(entry.cadenceDays());
+            BigDecimal cadence = BigDecimal.valueOf(cadenceDays);
             Instant lastVisitBeforeFlag = flaggedAt.minus(
-                    (long) Math.ceil(entry.cadenceDays() * 1.5) + 1, ChronoUnit.DAYS);
+                    (long) Math.ceil(cadenceDays * 1.5) + 1, ChronoUnit.DAYS);
 
             for (int visit = visits - 1; visit >= 0; visit--) {
-                ingest(business, entry.ref(), entry.name(),
+                ingest(business, entry.ref(), entry.name(), null,
                         "SEED-H-" + entry.ref() + "-" + visit,
-                        lastVisitBeforeFlag.minus(entry.cadenceDays() * (long) visit, ChronoUnit.DAYS),
-                        amountFor(entry.spend()), entry.email(), entry.phone());
+                        lastVisitBeforeFlag.minus(cadenceDays * (long) visit, ChronoUnit.DAYS),
+                        amountFor(spent(entry.spend())), entry.email(), entry.phone());
                 count++;
             }
 
             if (entry.recoveredAfterDays() != null) {
                 // The return visit itself, before the flag exists.
-                ingest(business, entry.ref(), entry.name(),
+                ingest(business, entry.ref(), entry.name(), null,
                         "SEED-H-" + entry.ref() + "-return",
                         flaggedAt.plus(entry.recoveredAfterDays(), ChronoUnit.DAYS),
-                        amountFor(entry.spend()), entry.email(), entry.phone());
+                        amountFor(spent(entry.spend())), entry.email(), entry.phone());
                 count++;
             }
 
@@ -450,7 +504,7 @@ public class DemoDataSeeder implements CommandLineRunner {
         int count = 0;
         for (int i = 0; i < CROWD_SIZE; i++) {
             String ref = "POS-5" + String.format("%03d", i);
-            int cadenceDays = CADENCES[random.nextInt(CADENCES.length)];
+            int cadenceDays = flavour.cadences()[random.nextInt(flavour.cadences().length)];
             // A few one-and-two-visit customers on purpose: below
             // MIN_TRANSACTIONS there is no rhythm, so they land in the report's
             // "no rhythm yet" band — a data gap rather than a retention problem,
@@ -471,7 +525,7 @@ public class DemoDataSeeder implements CommandLineRunner {
 
             List<Instant> times = visitTimes(lastVisit, gaps);
             for (int v = 0; v < times.size(); v++) {
-                ingest(business, ref, name(), "SEED-C-" + ref + "-" + v, times.get(v),
+                ingest(business, ref, name(), null, "SEED-C-" + ref + "-" + v, times.get(v),
                         amountFor(spend), contactFor(ref, "email"), contactFor(ref, "phone"));
                 count++;
             }
@@ -491,7 +545,7 @@ public class DemoDataSeeder implements CommandLineRunner {
         int count = 0;
         for (int i = 0; i < CROWD_HISTORY_SIZE; i++) {
             String ref = "POS-6" + String.format("%03d", i);
-            int cadenceDays = CADENCES[random.nextInt(CADENCES.length)];
+            int cadenceDays = flavour.cadences()[random.nextInt(flavour.cadences().length)];
             Instant flaggedAt = now.minus((1 + random.nextInt(11)) * 7L, ChronoUnit.DAYS);
 
             double[] gaps = jitteredGaps(cadenceDays, 6);
@@ -507,7 +561,7 @@ public class DemoDataSeeder implements CommandLineRunner {
 
             List<Instant> times = visitTimes(lastVisitBeforeFlag, gaps);
             for (int v = 0; v < times.size(); v++) {
-                ingest(business, ref, name(), "SEED-CH-" + ref + "-" + v, times.get(v),
+                ingest(business, ref, name(), null, "SEED-CH-" + ref + "-" + v, times.get(v),
                         amountFor(spend), contactFor(ref, "email"), contactFor(ref, "phone"));
                 count++;
             }
@@ -520,7 +574,7 @@ public class DemoDataSeeder implements CommandLineRunner {
                     : null;
 
             if (recoveredAfterDays != null) {
-                ingest(business, ref, name(), "SEED-CH-" + ref + "-return",
+                ingest(business, ref, name(), null, "SEED-CH-" + ref + "-return",
                         flaggedAt.plus(recoveredAfterDays, ChronoUnit.DAYS), amountFor(spend),
                         contactFor(ref, "email"), contactFor(ref, "phone"));
                 count++;
@@ -609,9 +663,23 @@ public class DemoDataSeeder implements CommandLineRunner {
         return total / values.length;
     }
 
-    /** The trigger's own clamp, so the fixture is placed against the real one. */
-    private static double clamp(double threshold) {
-        return Math.min(60, Math.max(3, threshold));
+    /**
+     * The trigger's own clamp, so the fixture is placed against the real one:
+     * the seeded business's, which comes from its type's preset.
+     */
+    private double clamp(double threshold) {
+        return Math.min(seeded.getMaxThresholdDays(),
+                Math.max(seeded.getMinThresholdDays(), threshold));
+    }
+
+    /** A rhythm or a quiet spell, stretched to this trade's clock. Zero stays zero. */
+    private int stretch(int days) {
+        return days * flavour.rhythmScale();
+    }
+
+    /** A spend, scaled to this trade's ticket size and rounded to the ten. */
+    private int spent(int base) {
+        return (int) (Math.round(base * flavour.spendScale() / 10.0) * 10);
     }
 
     /** A basket near this customer's usual spend, on the ten. */
@@ -631,10 +699,10 @@ public class DemoDataSeeder implements CommandLineRunner {
         for (SpendBand band : SPEND_BANDS) {
             draw -= band.weight();
             if (draw < 0) {
-                return band.min() + random.nextInt(band.max() - band.min());
+                return spent(band.min() + random.nextInt(band.max() - band.min()));
             }
         }
-        return SPEND_BANDS[0].min();
+        return spent(SPEND_BANDS[0].min());
     }
 
     private String name() {
@@ -667,10 +735,10 @@ public class DemoDataSeeder implements CommandLineRunner {
      *                     are both exercised rather than just described.
      */
     private void ingest(Business business, String customerRef, String customerName,
-                        String externalTxnId, Instant occurredAt, BigDecimal amount,
-                        String email, String phone) {
+                        String usualItem, String externalTxnId, Instant occurredAt,
+                        BigDecimal amount, String email, String phone) {
         ingestion.ingest(business.getId(), new TransactionIngestRequest(
-                business.getId(), customerRef, customerName, null, externalTxnId,
+                business.getId(), customerRef, customerName, usualItem, externalTxnId,
                 amount, occurredAt, email, phone));
     }
 }

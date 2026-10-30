@@ -1,8 +1,9 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { ImportPreview, ImportPreviewStats, ImportResult } from '../core/api.models';
+import { VocabularyService } from '../core/vocabulary.service';
 
 /** Our fields, in the order the mapping form presents them. */
 interface FieldSpec {
@@ -30,10 +31,10 @@ interface FieldSpec {
   standalone: true,
   imports: [DatePipe, DecimalPipe, FormsModule],
   template: `
-    <h1>Import POS transactions</h1>
+    <h1>Import transactions</h1>
     <p class="muted small" style="margin:4px 0 var(--space-5)">
-      Upload an export from your till system. Rows you've already imported are skipped, so
-      re-uploading the same file is safe.
+      Upload an export from your till or booking system. Rows you've already imported are
+      skipped, so re-uploading the same file is safe.
     </p>
 
     <div class="grid">
@@ -55,7 +56,7 @@ interface FieldSpec {
             what stops a row being counted twice.
           </p>
 
-          @for (field of fields; track field.key) {
+          @for (field of fields(); track field.key) {
             <div class="field">
               <label [for]="'map-' + field.key">
                 {{ field.label }}
@@ -105,13 +106,28 @@ interface FieldSpec {
                 <dd class="mono" [class.bad]="counts.invalidRowCount > 0">
                   {{ counts.invalidRowCount | number }}
                 </dd>
-                <dt>Customers</dt>
+                @if (counts.skippedCancelled > 0) {
+                  <dt>Cancelled or no-show</dt>
+                  <dd class="mono">{{ counts.skippedCancelled | number }}</dd>
+                }
+                @if (counts.skippedFuture > 0) {
+                  <dt>Booked ahead</dt>
+                  <dd class="mono">{{ counts.skippedFuture | number }}</dd>
+                }
+                <dt>{{ words().customerNounPlural.charAt(0).toUpperCase() + words().customerNounPlural.slice(1) }}</dt>
                 <dd class="mono">{{ counts.uniqueCustomers | number }}</dd>
               </dl>
+              @if (counts.skippedCancelled > 0 || counts.skippedFuture > 0) {
+                <p class="hint" style="margin-top:var(--space-3)">
+                  Left out on purpose: a cancelled or no-show appointment, or one that hasn't
+                  happened yet, isn't a {{ words().visitNoun }}, and counting it would bend
+                  {{ words().customerNoun }} rhythms the wrong way.
+                </p>
+              }
 
               @if (counts.earliest && counts.latest) {
                 <p class="hint" style="margin-top:var(--space-3)">
-                  Sales dated {{ counts.earliest | date: 'd MMM yyyy' }} to
+                  Dated {{ counts.earliest | date: 'd MMM yyyy' }} to
                   {{ counts.latest | date: 'd MMM yyyy' }}.
                 </p>
               } @else {
@@ -181,6 +197,14 @@ interface FieldSpec {
             <dd class="mono">{{ summary.duplicates | number }}</dd>
             <dt>Couldn't read</dt>
             <dd class="mono" [class.bad]="summary.failed > 0">{{ summary.failed | number }}</dd>
+            @if (summary.skippedCancelled > 0) {
+              <dt>Cancelled or no-show (left out)</dt>
+              <dd class="mono">{{ summary.skippedCancelled | number }}</dd>
+            }
+            @if (summary.skippedFuture > 0) {
+              <dt>Booked ahead (left out)</dt>
+              <dd class="mono">{{ summary.skippedFuture | number }}</dd>
+            }
           </dl>
 
           @if (summary.failed > 0) {
@@ -279,36 +303,45 @@ interface FieldSpec {
 export class ImportComponent {
   private readonly api = inject(ApiService);
 
-  readonly fields: FieldSpec[] = [
+  private readonly vocabulary = inject(VocabularyService);
+
+  /** The words for this trade; the labels below are built from them. */
+  readonly words = this.vocabulary.words;
+
+  /** Built from the vocabulary, so a salon is asked for a "Usual service". */
+  readonly fields = computed<FieldSpec[]>(() => {
+    const words = this.words();
+    const noun = words.customerNoun.charAt(0).toUpperCase() + words.customerNoun.slice(1);
+    return [
     {
       key: 'customerRef',
-      label: 'Customer reference',
-      hint: 'Whatever identifies the same person across visits — a loyalty or account number.',
+      label: `${noun} reference`,
+      hint: 'Whatever identifies the same person across visits — a loyalty, account or client number.',
       required: true,
     },
     {
       key: 'customerName',
-      label: 'Customer name',
+      label: `${noun} name`,
       hint: 'Used to address the offer email. Left out, the offer still sends without a greeting.',
       required: false,
     },
     {
       key: 'usualItem',
-      label: 'Usual order',
+      label: words.usualLabel,
       hint: 'Named in the offer email when present. Never guessed — left out, the email omits it.',
       required: false,
     },
     {
       key: 'externalTxnId',
       label: 'Transaction ID',
-      hint: 'Must be unique per sale. This is how a re-uploaded row is recognised and skipped.',
+      hint: 'Must be unique per row. This is how a re-uploaded row is recognised and skipped.',
       required: true,
     },
-    { key: 'amount', label: 'Amount', hint: 'The sale total.', required: true },
+    { key: 'amount', label: 'Amount', hint: 'What was paid.', required: true },
     {
       key: 'occurredAt',
-      label: 'Date of sale',
-      hint: 'When the sale happened — this is what visit rhythm is measured from.',
+      label: `Date of ${words.visitNoun}`,
+      hint: 'When it happened — this is what visit rhythm is measured from. Dates with no time zone are read in your timezone.',
       required: true,
     },
     {
@@ -318,7 +351,14 @@ export class ImportComponent {
       required: false,
     },
     { key: 'contactPhone', label: 'Phone', hint: 'Used if there is no email.', required: false },
-  ];
+    {
+      key: 'status',
+      label: 'Status',
+      hint: 'Optional. Map this if your booking system exports cancelled and no-show rows: they are left out instead of counted as visits.',
+      required: false,
+    },
+    ];
+  });
 
   readonly file = signal<File | null>(null);
   readonly preview = signal<ImportPreview | null>(null);
@@ -386,7 +426,7 @@ export class ImportComponent {
   }
 
   complete(): boolean {
-    return this.fields
+    return this.fields()
       .filter((field) => field.required)
       .every((field) => !!this.mapping[field.key]);
   }

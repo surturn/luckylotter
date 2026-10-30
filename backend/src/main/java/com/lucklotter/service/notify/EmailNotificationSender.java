@@ -1,5 +1,6 @@
 package com.lucklotter.service.notify;
 
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.Customer;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.domain.Offer;
@@ -67,13 +68,14 @@ public class EmailNotificationSender implements NotificationSender {
         }
 
         String businessName = offer.getBusiness().getName();
+        BusinessType.Vocabulary vocabulary = offer.getBusiness().getBusinessType().vocabulary();
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(recipient);
-            helper.setSubject(subject(customer, businessName));
-            helper.setText(body(offer, customer, businessName), true);
+            helper.setSubject(subject(customer, businessName, vocabulary));
+            helper.setText(body(offer, customer, businessName, vocabulary), true);
             mailSender.send(message);
         } catch (MailAuthenticationException e) {
             // Our own credentials were refused: a configuration problem that
@@ -149,12 +151,12 @@ public class EmailNotificationSender implements NotificationSender {
      * waiting" is recognisably about this customer in an inbox preview, where
      * "we've missed you" is recognisably a mailshot.
      */
-    private String subject(Customer customer, String businessName) {
+    private String subject(Customer customer, String businessName, BusinessType.Vocabulary vocabulary) {
         String name = customer.greetingName();
         String usual = customer.getUsualItem();
 
         if (name != null && usual != null) {
-            return name + ", your " + usual + " is waiting at " + businessName;
+            return vocabulary.subjectWithUsual().formatted(name, usual, businessName);
         }
         if (name != null) {
             return name + ", we've missed you at " + businessName;
@@ -188,6 +190,9 @@ public class EmailNotificationSender implements NotificationSender {
         if (days < 45) {
             return "a few weeks";
         }
+        if (days < 100) {
+            return "a couple of months";
+        }
         return "a while";
     }
 
@@ -195,7 +200,8 @@ public class EmailNotificationSender implements NotificationSender {
      * Inline styles and a table-free layout, because email clients discard
      * stylesheets and disagree about everything else.
      */
-    private String body(Offer offer, Customer customer, String businessName) {
+    private String body(Offer offer, Customer customer, String businessName,
+                        BusinessType.Vocabulary vocabulary) {
         String code = offer.getRedemptionCode() == null ? "" : offer.getRedemptionCode();
         String name = customer.greetingName();
 
@@ -222,9 +228,9 @@ public class EmailNotificationSender implements NotificationSender {
         // the warmth, and inventing it would be the one thing that destroys it.
         String usualLine = usual == null ? "" : """
               <p style="font-size:16px;line-height:1.5;margin:0 0 16px;">
-                We've still got it on the menu.
+                %s
               </p>
-            """;
+            """.formatted(escape(vocabulary.welcomeBackLine()));
 
         return """
             <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
@@ -238,13 +244,13 @@ public class EmailNotificationSender implements NotificationSender {
                    the business configured, and a percentage off is not a free
                    drink. The card below states the actual offer. -->
               <p style="font-size:16px;line-height:1.5;margin:0 0 24px;">
-                Here's a little something for when you're next passing:
+                %s
               </p>
               <div style="border:1px solid #dbeafe;border-radius:12px;padding:20px;
                           background:#f8fafc;text-align:center;">
                 <div style="font-size:24px;font-weight:700;margin-bottom:8px;">%s</div>
                 <div style="font-size:13px;color:#52627a;margin-bottom:12px;">
-                  Quote this code on your next visit
+                  %s
                 </div>
                 <div style="font-family:monospace;font-size:20px;letter-spacing:2px;
                             font-weight:600;">%s</div>
@@ -253,7 +259,8 @@ public class EmailNotificationSender implements NotificationSender {
                 See you soon — the team at %s.
               </p>
             </div>
-            """.formatted(greeting, missedYou, usualLine, dealDescription(offer),
+            """.formatted(greeting, missedYou, usualLine, escape(vocabulary.invitationLine()),
+                          dealDescription(offer, vocabulary), escape(vocabulary.codeHint()),
                           escape(code), escape(businessName));
     }
 
@@ -271,13 +278,18 @@ public class EmailNotificationSender implements NotificationSender {
                 .replace("\"", "&quot;");
     }
 
-    private String dealDescription(Offer offer) {
+    private String dealDescription(Offer offer, BusinessType.Vocabulary vocabulary) {
         BigDecimal value = offer.getDealValue();
+        String amount = value.stripTrailingZeros().toPlainString();
         DealType type = offer.getDealType();
         return switch (type) {
-            case PERCENT_OFF -> value.stripTrailingZeros().toPlainString() + "% off";
-            case FIXED_AMOUNT_OFF -> "KES " + value.stripTrailingZeros().toPlainString() + " off";
-            case FREE_ITEM -> value.stripTrailingZeros().toPlainString() + " item on us";
+            case PERCENT_OFF -> amount + "% off";
+            // The business's own currency. This used to say KES for everyone,
+            // which is wrong the moment a client is not paid in shillings.
+            case FIXED_AMOUNT_OFF -> offer.getBusiness().getCurrencyCode() + " " + amount + " off";
+            case FREE_ITEM -> value.compareTo(BigDecimal.ONE) == 0
+                    ? "A " + vocabulary.freeItemLabel()
+                    : amount + " " + vocabulary.freeItemLabel() + "s";
         };
     }
 }

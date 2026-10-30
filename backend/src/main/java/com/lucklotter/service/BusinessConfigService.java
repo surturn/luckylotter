@@ -1,6 +1,7 @@
 package com.lucklotter.service;
 
 import com.lucklotter.domain.Business;
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.RetentionConstants;
 import com.lucklotter.repo.BusinessRepository;
 import com.lucklotter.web.dto.BusinessConfigResponse;
@@ -71,6 +72,7 @@ public class BusinessConfigService {
     }
 
     private BusinessConfigResponse toResponse(Business business) {
+        BusinessType.Vocabulary vocabulary = business.getBusinessType().vocabulary();
         return new BusinessConfigResponse(
                 business.getName(),
                 business.getSensitivityMultiplier(),
@@ -85,6 +87,14 @@ public class BusinessConfigService {
                 business.getTimezone(),
                 business.getDefaultDealType(),
                 business.getDefaultDealValue(),
-                RetentionConstants.MIN_TRANSACTIONS);
+                RetentionConstants.MIN_TRANSACTIONS,
+                business.getBusinessType(),
+                new BusinessConfigResponse.Vocabulary(
+                        vocabulary.customerNoun(),
+                        vocabulary.customerNounPlural(),
+                        vocabulary.visitNoun(),
+                        vocabulary.usualLabel(),
+                        vocabulary.freeItemLabel(),
+                        business.getBusinessType().preset().typicalCadenceDays()));
     }
 }

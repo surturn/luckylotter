@@ -18,7 +18,11 @@ public record ImportResultResponse(
     int imported,
     int duplicates,
     int failed,
-    List<RowError> errors
+    List<RowError> errors,
+    /** Rows left out because their status says the customer did not come. */
+    int skippedCancelled,
+    /** Rows left out because they are dated in the future: bookings, not visits. */
+    int skippedFuture
 ) {
 
     /**

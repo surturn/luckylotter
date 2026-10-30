@@ -56,7 +56,11 @@ public record ImportPreviewResponse(
         int uniqueCustomers,
         Instant earliest,
         Instant latest,
-        boolean truncated
+        boolean truncated,
+        /** Rows that would be left out because they are cancelled or no-shows. */
+        int skippedCancelled,
+        /** Rows that would be left out because they are dated in the future. */
+        int skippedFuture
     ) {
     }
 }

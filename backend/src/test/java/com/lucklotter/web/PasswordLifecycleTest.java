@@ -2,6 +2,7 @@ package com.lucklotter.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lucklotter.AbstractWebTest;
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.repo.AdminUserRepository;
 import com.lucklotter.repo.BusinessRepository;
@@ -205,7 +206,7 @@ class PasswordLifecycleTest extends AbstractWebTest {
 
     private ProvisioningService.Provisioned provision(String adminEmail) {
         return provisioning.createBusiness(new ProvisioningService.NewBusiness(
-                "Kaldi Coffee", adminEmail, "KES", "Africa/Nairobi",
+                "Kaldi Coffee", BusinessType.CAFE_RESTAURANT, adminEmail, "KES", "Africa/Nairobi",
                 DealType.PERCENT_OFF, new BigDecimal("15"), null));
     }
 

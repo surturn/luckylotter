@@ -315,7 +315,7 @@ class DemoSeedDispatchTest extends AbstractPostgresTest {
                                       PasswordEncoder passwordEncoder) {
             return new DemoDataSeeder(businesses, adminUsers, customers, flags, offers,
                     ingestion, retentionScan, redemptionCodes, passwordEncoder,
-                    "seed-admin@lucklotter.test", "seed-password");
+                    "seed-admin@lucklotter.test", "seed-password", "cafe-restaurant");
         }
     }
 }

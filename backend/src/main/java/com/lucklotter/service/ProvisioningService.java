@@ -2,6 +2,7 @@ package com.lucklotter.service;
 
 import com.lucklotter.domain.AdminUser;
 import com.lucklotter.domain.Business;
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.repo.AdminUserRepository;
 import com.lucklotter.repo.BusinessRepository;
@@ -15,9 +16,11 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Operator-side account management: creating a business with its first admin,
@@ -57,6 +60,7 @@ public class ProvisioningService {
     }
 
     public record NewBusiness(String name,
+                              BusinessType businessType,
                               String adminEmail,
                               String currencyCode,
                               String timezone,
@@ -74,6 +78,9 @@ public class ProvisioningService {
     @Transactional
     public Provisioned createBusiness(NewBusiness request) {
         String name = required(request.name(), "name");
+        if (request.businessType() == null) {
+            throw new ValidationException("type is required: one of " + validTypes());
+        }
         String adminEmail = email(request.adminEmail(), "admin-email");
         String currency = request.currencyCode() == null ? "" : request.currencyCode().trim().toUpperCase(Locale.ROOT);
         if (!CURRENCY.matcher(currency).matches()) {
@@ -102,7 +109,12 @@ public class ProvisioningService {
         business.setName(name);
         business.setCurrencyCode(currency);
         business.setTimezone(timezone);
-        business.setDefaultDealType(request.dealType() == null ? DealType.PERCENT_OFF : request.dealType());
+        // The type's starting settings first, then the operator's explicit choices
+        // on top: a deal type given on the command line beats the preset's.
+        business.applyPreset(request.businessType());
+        if (request.dealType() != null) {
+            business.setDefaultDealType(request.dealType());
+        }
         business.setDefaultDealValue(request.dealValue());
         business.setReplyToEmail(replyTo);
         businesses.save(business);
@@ -138,6 +150,13 @@ public class ProvisioningService {
         admin.setActive(false);
         log.info("Admin deactivated by operator: adminUserId={}", admin.getId());
         return admin.getId();
+    }
+
+    /** For the error message: what the operator may pass to --type. */
+    public static String validTypes() {
+        return Arrays.stream(BusinessType.values())
+                .map(type -> type.name().toLowerCase(Locale.ROOT).replace('_', '-'))
+                .collect(Collectors.joining(", "));
     }
 
     private String generatePassword() {

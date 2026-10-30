@@ -1,5 +1,7 @@
 package com.lucklotter.service;
 
+import com.lucklotter.domain.Business;
+import com.lucklotter.repo.BusinessRepository;
 import com.lucklotter.web.dto.ImportPreviewResponse;
 import com.lucklotter.web.dto.ImportResultResponse.RowError;
 import org.junit.jupiter.api.DisplayName;
@@ -7,10 +9,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The import preview's dry run (FR-1, §8).
@@ -26,9 +34,24 @@ class CsvImportServiceTest {
      * and counts but writes nothing — that is the property under test, and the
      * preview has no other collaborator to offer.
      */
-    private final CsvImportService csv = new CsvImportService(null);
+    private final CsvImportService csv = serviceIn("UTC");
 
     private static final UUID BUSINESS = UUID.randomUUID();
+
+    /**
+     * Fixed, so the rows dated in July 2026 stay in the past however long this
+     * suite lives, and "in the future" is a fixed line the tests can cross.
+     */
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-07-10T00:00:00Z"), ZoneOffset.UTC);
+
+    /** A service whose business keeps the given timezone. */
+    private static CsvImportService serviceIn(String timezone) {
+        Business business = new Business();
+        business.setTimezone(timezone);
+        BusinessRepository repository = mock(BusinessRepository.class);
+        when(repository.findById(any())).thenReturn(Optional.of(business));
+        return new CsvImportService(null, repository, CLOCK);
+    }
 
     private static final String HEADER = "Cust ID,Receipt No,Total,Date";
 
@@ -41,7 +64,7 @@ class CsvImportServiceTest {
             + "C1,R5,50.00,2026-07-05\n";
 
     private static final ColumnMapping MAPPING = new ColumnMapping(
-            "Cust ID", null, null, "Receipt No", "Total", "Date", null, null);
+            "Cust ID", null, null, "Receipt No", "Total", "Date", null, null, null);
 
     @Test
     @DisplayName("the preview counts what importing the file would do")
@@ -102,6 +125,115 @@ class CsvImportServiceTest {
         assertThat(stats.validRows()).isZero();
         assertThat(stats.earliest()).isNull();
         assertThat(stats.latest()).isNull();
+    }
+
+    // --- booking exports: cancellations, bookings ahead, local time --------------
+
+    private static final String BOOKING_HEADER = "Client ID,Appointment ID,Price,Appointment Date,Status";
+
+    private static final ColumnMapping BOOKING_MAPPING = new ColumnMapping(
+            "Client ID", null, null, "Appointment ID", "Price", "Appointment Date", null, null, "Status");
+
+    @Test
+    @DisplayName("cancelled and no-show appointments are left out and counted, not treated as visits or errors")
+    void cancelledRowsAreSkipped() {
+        // A no-show is exactly the signal the product exists to notice, so
+        // counting it as a visit would hide the lapse. The cancelled row here
+        // has no price at all, which would be an error if it were read.
+        String export = BOOKING_HEADER + "\n"
+                + "C1,B1,2500,2026-07-01,Completed\n"
+                + "C1,B2,,2026-07-02,Cancelled\n"
+                + "C2,B3,1800,2026-07-03,No-show\n"
+                + "C2,B4,1800,2026-07-04,NO SHOW\n"
+                + "C2,B5,1800,2026-07-05,completed\n";
+
+        ImportPreviewResponse.PreviewStats stats = preview(export, BOOKING_MAPPING).stats();
+
+        assertThat(stats.rowCount()).isEqualTo(5);
+        assertThat(stats.validRows()).isEqualTo(2);
+        assertThat(stats.skippedCancelled()).isEqualTo(3);
+        assertThat(stats.invalidRowCount()).as("a skipped row is not a failed one").isZero();
+    }
+
+    @Test
+    @DisplayName("appointments dated in the future are left out and counted")
+    void futureRowsAreSkipped() {
+        String export = BOOKING_HEADER + "\n"
+                + "C1,B1,2500,2026-07-01,Completed\n"
+                + "C1,B2,2500,2026-07-20,Booked\n"
+                + "C1,B3,2500,2026-08-15,Booked\n";
+
+        ImportPreviewResponse.PreviewStats stats = preview(export, BOOKING_MAPPING).stats();
+
+        assertThat(stats.validRows()).isEqualTo(1);
+        assertThat(stats.skippedFuture()).isEqualTo(2);
+        // The range describes what would import, so a booking next month does
+        // not stretch it.
+        assertThat(stats.latest()).isEqualTo(Instant.parse("2026-07-01T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("without a status column mapped nothing is skipped as cancelled")
+    void statusColumnIsOptional() {
+        ColumnMapping withoutStatus = new ColumnMapping(
+                "Client ID", null, null, "Appointment ID", "Price", "Appointment Date", null, null, null);
+        String export = BOOKING_HEADER + "\nC1,B1,2500,2026-07-01,Cancelled\n";
+
+        ImportPreviewResponse.PreviewStats stats = preview(export, withoutStatus).stats();
+
+        assertThat(stats.skippedCancelled()).isZero();
+        assertThat(stats.validRows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a date with no zone is read in the business timezone, not UTC")
+    void localTimesAreReadInTheBusinessZone() {
+        // Los Angeles is UTC-7 in July: midnight there is 07:00 UTC, and a
+        // 6:30pm appointment is already tomorrow in UTC. Read as UTC, the
+        // evening booking would be filed on the wrong day.
+        CsvImportService losAngeles = serviceIn("America/Los_Angeles");
+        String export = "Client ID,Appointment ID,Price,Appointment Date\n"
+                + "C1,B1,100,2026-07-01\n"
+                + "C1,B2,100,2026-07-02 18:30:00\n";
+        ColumnMapping mapping = new ColumnMapping(
+                "Client ID", null, null, "Appointment ID", "Price", "Appointment Date", null, null, null);
+
+        ImportPreviewResponse.PreviewStats stats = losAngeles.preview(BUSINESS,
+                new MockMultipartFile("file", "x.csv", "text/csv",
+                        export.getBytes(StandardCharsets.UTF_8)), mapping).stats();
+
+        assertThat(stats.earliest()).isEqualTo(Instant.parse("2026-07-01T07:00:00Z"));
+        assertThat(stats.latest()).isEqualTo(Instant.parse("2026-07-03T01:30:00Z"));
+    }
+
+    @Test
+    @DisplayName("a booking system's usual headers are recognised without hand-mapping")
+    void bookingHeadersAreSuggested() {
+        ColumnMapping suggested = ColumnMapping.suggestFor(java.util.List.of(
+                "Client ID", "Client Name", "Appointment ID", "Appointment Date", "Service",
+                "Price", "Status", "Cell", "Email"));
+
+        assertThat(suggested.customerRef()).isEqualTo("Client ID");
+        assertThat(suggested.customerName()).isEqualTo("Client Name");
+        assertThat(suggested.externalTxnId()).isEqualTo("Appointment ID");
+        assertThat(suggested.occurredAt()).isEqualTo("Appointment Date");
+        assertThat(suggested.usualItem()).isEqualTo("Service");
+        assertThat(suggested.amount()).isEqualTo("Price");
+        assertThat(suggested.status()).isEqualTo("Status");
+        assertThat(suggested.contactPhone()).isEqualTo("Cell");
+        assertThat(suggested.isComplete()).isTrue();
+    }
+
+    @Test
+    @DisplayName("status values match however they are spelled")
+    void statusMatchingIgnoresPunctuationAndCase() {
+        assertThat(ColumnMapping.isSkippedStatus("No-Show")).isTrue();
+        assertThat(ColumnMapping.isSkippedStatus("no_show")).isTrue();
+        assertThat(ColumnMapping.isSkippedStatus("CANCELLED")).isTrue();
+        assertThat(ColumnMapping.isSkippedStatus("Canceled")).isTrue();
+        assertThat(ColumnMapping.isSkippedStatus("Completed")).isFalse();
+        assertThat(ColumnMapping.isSkippedStatus("Checked in")).isFalse();
+        assertThat(ColumnMapping.isSkippedStatus(null)).isFalse();
     }
 
     private ImportPreviewResponse preview(String content, ColumnMapping mapping) {

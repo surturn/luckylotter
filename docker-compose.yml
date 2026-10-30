@@ -52,6 +52,7 @@ services:
       MAIL_HOST: ${MAIL_HOST:-mailpit}
       MAIL_PORT: ${MAIL_PORT:-1025}
       SEED_ENABLED: ${SEED_ENABLED:-false}
+      SEED_TYPE: ${SEED_TYPE:-cafe-restaurant}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@lucklotter.test}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-demo-password-123}
     ports:

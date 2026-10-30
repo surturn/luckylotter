@@ -24,6 +24,7 @@ Not deployed yet, local only. Decided 2026-10-29: it runs as a managed service f
 ## Session state (update at the end of each session)
 - 2026-10-09: retention diagnostic built and shown on an operator page, reporting-period picker added, demo data expanded.
 - 2026-10-29: operator provisioning and password lifecycle built (V8, CLI, change-password, forced change, session invalidation). 148 tests. Next: unsubscribe and opt-out (opted-out customers stay flagged as `SUPPRESSED_OPTOUT`), then the Contabo deploy. See `PRD-TODOS.md` "Service operation".
+- 2026-10-30: works for barbershops, salons and spas (V10 `BusinessType`, required `--type`, per-type presets and wording, booking-export import rules, `SEED_TYPE` demo flavours). Retry cap and `SUPPRESSED_RETURNED` landed in V9.
 - Next: see unchecked items in `PRD-TODOS.md`.
 
 ## Verify (see global rule: drive it like a user, mobile 390x844 and desktop 1440x900, screenshots, fix until it works)

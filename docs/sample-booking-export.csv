@@ -1,0 +1,24 @@
+Client ID,Client Name,Appointment ID,Appointment Date,Service,Price,Status,Cell,Email
+CL-101,Wanjiru Kamau,BK-9001,2026-01-10 10:00:00,Silk press,4500,Completed,+254700100101,wanjiru@example.test
+CL-101,Wanjiru Kamau,BK-9002,2026-02-28 10:30:00,Silk press,4500,Completed,+254700100101,wanjiru@example.test
+CL-101,Wanjiru Kamau,BK-9003,2026-04-18 11:00:00,Silk press,4800,Completed,+254700100101,wanjiru@example.test
+CL-101,Wanjiru Kamau,BK-9004,2026-06-06 10:00:00,Silk press,4800,Completed,+254700100101,wanjiru@example.test
+CL-101,Wanjiru Kamau,BK-9005,2026-07-25 10:30:00,Silk press,4800,Completed,+254700100101,wanjiru@example.test
+CL-102,Achieng Otieno,BK-9011,2026-01-17 14:00:00,Cut and colour,9200,Completed,+254700100102,achieng@example.test
+CL-102,Achieng Otieno,BK-9012,2026-03-07 14:00:00,Cut and colour,9200,Completed,+254700100102,achieng@example.test
+CL-102,Achieng Otieno,BK-9013,2026-04-25 14:30:00,Cut and colour,9500,Completed,+254700100102,achieng@example.test
+CL-102,Achieng Otieno,BK-9014,2026-06-13 14:00:00,Cut and colour,9500,No-show,+254700100102,achieng@example.test
+CL-102,Achieng Otieno,BK-9015,2026-06-20 14:00:00,Cut and colour,9500,Completed,+254700100102,achieng@example.test
+CL-103,Brenda Mwende,BK-9021,2026-02-03 09:00:00,Braids,7000,Completed,,brenda@example.test
+CL-103,Brenda Mwende,BK-9022,2026-03-24 09:00:00,Braids,7000,Completed,,brenda@example.test
+CL-103,Brenda Mwende,BK-9023,2026-05-12 09:30:00,Braids,7200,Completed,,brenda@example.test
+CL-103,Brenda Mwende,BK-9024,2026-06-30 09:00:00,Braids,7200,Cancelled,,brenda@example.test
+CL-103,Brenda Mwende,BK-9025,2026-07-14 09:00:00,Braids,7200,Completed,,brenda@example.test
+CL-104,Faith Njeri,BK-9031,2026-01-24 16:00:00,Manicure,2200,Completed,+254700100104,
+CL-104,Faith Njeri,BK-9032,2026-02-21 16:00:00,Manicure,2200,Completed,+254700100104,
+CL-104,Faith Njeri,BK-9033,2026-03-21 16:00:00,Manicure,2200,Completed,+254700100104,
+CL-104,Faith Njeri,BK-9034,2026-04-18 16:30:00,Manicure,2400,Completed,+254700100104,
+CL-104,Faith Njeri,BK-9035,2026-05-16 16:00:00,Manicure,2400,Completed,+254700100104,
+CL-104,Faith Njeri,BK-9036,2026-10-17 16:00:00,Manicure,2400,Completed,+254700100104,
+CL-101,Wanjiru Kamau,BK-9006,2027-01-09 10:00:00,Silk press,4800,Booked,+254700100101,wanjiru@example.test
+CL-102,Achieng Otieno,BK-9016,2027-02-06 14:00:00,Cut and colour,9500,Booked,+254700100102,achieng@example.test

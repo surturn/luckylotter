@@ -68,9 +68,10 @@ public class TransactionController {
                                             @RequestParam(value = "amount", required = false) String amount,
                                             @RequestParam(value = "occurredAt", required = false) String occurredAt,
                                             @RequestParam(value = "contactEmail", required = false) String contactEmail,
-                                            @RequestParam(value = "contactPhone", required = false) String contactPhone) {
+                                            @RequestParam(value = "contactPhone", required = false) String contactPhone,
+                                            @RequestParam(value = "status", required = false) String status) {
         ColumnMapping mapping = new ColumnMapping(customerRef, customerName, usualItem,
-                externalTxnId, amount, occurredAt, contactEmail, contactPhone);
+                externalTxnId, amount, occurredAt, contactEmail, contactPhone, status);
         return csvImportService.preview(admin.businessId(), file, mapping);
     }
 
@@ -94,9 +95,10 @@ public class TransactionController {
                                           @RequestParam("amount") String amount,
                                           @RequestParam("occurredAt") String occurredAt,
                                           @RequestParam(value = "contactEmail", required = false) String contactEmail,
-                                          @RequestParam(value = "contactPhone", required = false) String contactPhone) {
+                                          @RequestParam(value = "contactPhone", required = false) String contactPhone,
+                                          @RequestParam(value = "status", required = false) String status) {
         ColumnMapping mapping = new ColumnMapping(customerRef, customerName, usualItem,
-                externalTxnId, amount, occurredAt, contactEmail, contactPhone);
+                externalTxnId, amount, occurredAt, contactEmail, contactPhone, status);
         return csvImportService.importCsv(admin.businessId(), file, mapping);
     }
 }

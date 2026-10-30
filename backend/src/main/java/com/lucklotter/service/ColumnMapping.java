@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Which column of an uploaded CSV holds which of our fields (FR-1).
@@ -20,7 +21,14 @@ public record ColumnMapping(
     String amount,
     String occurredAt,
     String contactEmail,
-    String contactPhone
+    String contactPhone,
+    /**
+     * Optional. A booking system exports cancelled and no-show appointments
+     * alongside the real ones; when this column is mapped, rows whose value is
+     * one of {@link #SKIPPED_STATUSES} are left out instead of being counted as
+     * visits.
+     */
+    String status
 ) {
 
     /** Our field names, in the order the mapping form should present them. */
@@ -32,6 +40,18 @@ public record ColumnMapping(
     public static final String OCCURRED_AT = "occurredAt";
     public static final String CONTACT_EMAIL = "contactEmail";
     public static final String CONTACT_PHONE = "contactPhone";
+    public static final String STATUS = "status";
+
+    /**
+     * Statuses that mean the customer did not actually come, compared with
+     * everything but letters stripped, so "No-show", "no_show" and "NO SHOW" are
+     * one value. A booking export is full of these, and counting a no-show as a
+     * visit would move the client's rhythm by the very thing the product exists
+     * to notice: that they did not turn up.
+     */
+    public static final Set<String> SKIPPED_STATUSES = Set.of(
+            "cancelled", "canceled", "noshow", "declined", "void", "voided",
+            "refunded", "rejected", "failed", "deleted", "abandoned");
 
     public static final List<String> REQUIRED_FIELDS =
             List.of(CUSTOMER_REF, EXTERNAL_TXN_ID, AMOUNT, OCCURRED_AT);
@@ -44,7 +64,8 @@ public record ColumnMapping(
      */
     private static final Map<String, List<String>> SYNONYMS = Map.of(
         CUSTOMER_REF, List.of("customerref", "customerid", "customercode", "customer", "custid",
-                              "clientid", "memberid", "member", "loyaltyid", "cardnumber", "cardno"),
+                              "clientid", "clientref", "clientnumber", "clientcode", "guestid",
+                              "memberid", "member", "loyaltyid", "cardnumber", "cardno"),
         // Deliberately excludes a bare "customer", which CUSTOMER_REF claims:
         // in a till export that column is far more often the ID than the name,
         // and suggesting one header for two fields would be worse than leaving
@@ -53,17 +74,27 @@ public record ColumnMapping(
                                "clientname", "membername", "contactname"),
         USUAL_ITEM, List.of("usualitem", "usualorder", "usual", "regularorder", "favouriteitem",
                             "favoriteitem", "favourite", "favorite", "preferreditem", "item",
-                            "product", "drink"),
+                            "product", "drink",
+                            // Booking systems: what was done, not what was ordered.
+                            "service", "services", "servicename", "treatment", "treatmentname",
+                            "usualservice", "usualtreatment"),
         EXTERNAL_TXN_ID, List.of("externaltxnid", "transactionid", "txnid", "transactionref",
                                  "receiptno", "receiptnumber", "receipt", "invoiceno", "invoicenumber",
-                                 "invoice", "ordernumber", "orderid", "orderno", "saleid", "reference"),
+                                 "invoice", "ordernumber", "orderid", "orderno", "saleid", "reference",
+                                 "appointmentid", "appointmentno", "appointmentnumber", "bookingid",
+                                 "bookingref", "bookingreference", "bookingnumber", "visitid"),
         AMOUNT, List.of("amount", "total", "totalamount", "grandtotal", "nettotal", "netamount",
-                        "value", "price", "amountpaid", "paid"),
+                        "value", "price", "amountpaid", "paid", "servicetotal", "amountcharged",
+                        "charged", "revenue"),
         OCCURRED_AT, List.of("occurredat", "date", "datetime", "transactiondate", "transactiontime",
-                             "timestamp", "saledate", "purchasedate", "time", "createdat"),
+                             "timestamp", "saledate", "purchasedate", "time", "createdat",
+                             "appointmentdate", "appointmenttime", "appointmentdatetime", "bookingdate",
+                             "start", "starttime", "startdate", "visitdate", "scheduledat"),
         CONTACT_EMAIL, List.of("contactemail", "email", "emailaddress", "customeremail", "mail"),
         CONTACT_PHONE, List.of("contactphone", "phone", "phonenumber", "mobile", "mobilenumber",
-                               "msisdn", "telephone", "tel", "customerphone")
+                               "msisdn", "telephone", "tel", "customerphone", "cell", "cellphone",
+                               "clientphone", "whatsapp"),
+        STATUS, List.of("status", "appointmentstatus", "bookingstatus", "visitstatus", "state")
     );
 
     /** True when every required field has a column assigned. */
@@ -81,6 +112,7 @@ public record ColumnMapping(
         map.put(OCCURRED_AT, occurredAt);
         map.put(CONTACT_EMAIL, contactEmail);
         map.put(CONTACT_PHONE, contactPhone);
+        map.put(STATUS, status);
         return map;
     }
 
@@ -100,7 +132,13 @@ public record ColumnMapping(
                 match(headers, AMOUNT),
                 match(headers, OCCURRED_AT),
                 match(headers, CONTACT_EMAIL),
-                match(headers, CONTACT_PHONE));
+                match(headers, CONTACT_PHONE),
+                match(headers, STATUS));
+    }
+
+    /** True when the row's status says the customer did not come. */
+    public static boolean isSkippedStatus(String value) {
+        return value != null && SKIPPED_STATUSES.contains(normalise(value));
     }
 
     private static String match(List<String> headers, String field) {

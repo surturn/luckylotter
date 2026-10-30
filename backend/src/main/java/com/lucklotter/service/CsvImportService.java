@@ -1,5 +1,6 @@
 package com.lucklotter.service;
 
+import com.lucklotter.repo.BusinessRepository;
 import com.lucklotter.support.Redact;
 import com.lucklotter.web.dto.ImportPreviewResponse;
 import com.lucklotter.web.dto.ImportResultResponse;
@@ -7,6 +8,7 @@ import com.lucklotter.web.dto.ImportResultResponse.RowError;
 import com.lucklotter.web.dto.TransactionIngestRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -15,9 +17,12 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -60,9 +65,38 @@ public class CsvImportService {
     private static final int PREVIEW_ERROR_SAMPLES = 10;
 
     private final IngestionService ingestion;
+    private final BusinessRepository businesses;
+    private final Clock clock;
 
-    public CsvImportService(IngestionService ingestion) {
+    @Autowired
+    public CsvImportService(IngestionService ingestion, BusinessRepository businesses) {
+        this(ingestion, businesses, Clock.systemUTC());
+    }
+
+    CsvImportService(IngestionService ingestion, BusinessRepository businesses, Clock clock) {
         this.ingestion = ingestion;
+        this.businesses = businesses;
+        this.clock = clock;
+    }
+
+    /**
+     * The zone a date with no zone of its own is read in: the business's.
+     *
+     * <p>A till or booking export writes local times with no offset. Read as UTC,
+     * an evening appointment in Los Angeles lands on tomorrow and a morning one
+     * in Nairobi on the right day by luck, and a row dated "today" can look like
+     * it is in the future. The business's own timezone is what the export meant.
+     */
+    private ZoneId zoneOf(UUID businessId) {
+        return businesses.findById(businessId)
+                .map(business -> {
+                    try {
+                        return ZoneId.of(business.getTimezone());
+                    } catch (DateTimeException e) {
+                        return ZoneOffset.UTC;
+                    }
+                })
+                .orElse(ZoneOffset.UTC);
     }
 
     /**
@@ -87,7 +121,9 @@ public class CsvImportService {
                     : null;
 
             List<List<String>> samples = new ArrayList<>();
-            DryRun dryRun = columns == null ? null : new DryRun(businessId, columns);
+            DryRun dryRun = columns == null
+                    ? null
+                    : new DryRun(businessId, columns, zoneOf(businessId), clock.instant());
 
             // One pass for both: the samples and the counts are two views of the
             // same rows, and reading them separately would cost a second scan of
@@ -137,10 +173,14 @@ public class CsvImportService {
         int imported = 0;
         int duplicates = 0;
         int failed = 0;
+        int skippedCancelled = 0;
+        int skippedFuture = 0;
         List<RowError> errors = new ArrayList<>();
 
         try (BufferedReader reader = open(file)) {
             Map<String, Integer> columns = resolve(readHeader(reader), mapping);
+            ZoneId zone = zoneOf(businessId);
+            Instant now = clock.instant();
 
             String line;
             int lineNumber = 1;
@@ -156,7 +196,19 @@ public class CsvImportService {
                 total++;
 
                 try {
-                    TransactionIngestRequest request = toRequest(businessId, parseLine(line), columns);
+                    List<String> row = parseLine(line);
+                    // Checked before anything else is read: a cancelled booking
+                    // often has an incomplete row, and it is not an error that
+                    // it does.
+                    if (isCancelled(row, columns)) {
+                        skippedCancelled++;
+                        continue;
+                    }
+                    TransactionIngestRequest request = toRequest(businessId, row, columns, zone);
+                    if (request.occurredAt().isAfter(now)) {
+                        skippedFuture++;
+                        continue;
+                    }
                     if (ingestion.ingest(businessId, request).duplicate()) {
                         duplicates++;
                     } else {
@@ -173,9 +225,11 @@ public class CsvImportService {
             throw new ValidationException("The file could not be read: " + e.getMessage());
         }
 
-        log.info("CSV import finished: businessId={} rows={} imported={} duplicates={} failed={}",
-                businessId, total, imported, duplicates, failed);
-        return new ImportResultResponse(total, imported, duplicates, failed, errors);
+        log.info("CSV import finished: businessId={} rows={} imported={} duplicates={} failed={} "
+                        + "skippedCancelled={} skippedFuture={}",
+                businessId, total, imported, duplicates, failed, skippedCancelled, skippedFuture);
+        return new ImportResultResponse(total, imported, duplicates, failed, errors,
+                skippedCancelled, skippedFuture);
     }
 
     private static BufferedReader open(MultipartFile file) throws IOException {
@@ -226,8 +280,13 @@ public class CsvImportService {
         return resolved;
     }
 
+    /** Whether the row's status column, if mapped, says the customer did not come. */
+    private static boolean isCancelled(List<String> row, Map<String, Integer> columns) {
+        return ColumnMapping.isSkippedStatus(optional(row, columns, ColumnMapping.STATUS));
+    }
+
     private static TransactionIngestRequest toRequest(UUID businessId, List<String> row,
-                                                      Map<String, Integer> columns) {
+                                                      Map<String, Integer> columns, ZoneId zone) {
         String customerRef = required(row, columns, ColumnMapping.CUSTOMER_REF, "customer reference");
         String externalTxnId = required(row, columns, ColumnMapping.EXTERNAL_TXN_ID, "transaction ID");
         String rawAmount = required(row, columns, ColumnMapping.AMOUNT, "amount");
@@ -251,28 +310,29 @@ public class CsvImportService {
                 optional(row, columns, ColumnMapping.USUAL_ITEM),
                 externalTxnId,
                 amount,
-                parseTimestamp(required(row, columns, ColumnMapping.OCCURRED_AT, "date")),
+                parseTimestamp(required(row, columns, ColumnMapping.OCCURRED_AT, "date"), zone),
                 optional(row, columns, ColumnMapping.CONTACT_EMAIL),
                 optional(row, columns, ColumnMapping.CONTACT_PHONE));
     }
 
     /**
      * Accepts an ISO instant, a local date-time, or a plain date — the three
-     * shapes POS exports actually produce. A bare date is read as midnight UTC.
+     * shapes POS exports actually produce. A date-time or date with no zone of
+     * its own is read in the business's timezone; a bare date is midnight there.
      */
-    private static Instant parseTimestamp(String value) {
+    private static Instant parseTimestamp(String value, ZoneId zone) {
         try {
             return Instant.parse(value);
         } catch (DateTimeParseException ignored) {
             // Fall through to the looser formats.
         }
         try {
-            return LocalDateTime.parse(value.replace(' ', 'T')).toInstant(ZoneOffset.UTC);
+            return LocalDateTime.parse(value.replace(' ', 'T')).atZone(zone).toInstant();
         } catch (DateTimeParseException ignored) {
             // Fall through.
         }
         try {
-            return LocalDate.parse(value).atStartOfDay(ZoneOffset.UTC).toInstant();
+            return LocalDate.parse(value).atStartOfDay(zone).toInstant();
         } catch (DateTimeParseException e) {
             throw new ValidationException(
                     "date is not recognisable - use 2026-07-28, 2026-07-28 09:30:00,"
@@ -310,19 +370,25 @@ public class CsvImportService {
 
         private final UUID businessId;
         private final Map<String, Integer> columns;
+        private final ZoneId zone;
+        private final Instant now;
 
         private int rowCount;
         private int valid;
         private int invalid;
+        private int skippedCancelled;
+        private int skippedFuture;
         private boolean truncated;
         private final List<RowError> failures = new ArrayList<>();
         private final Set<String> customers = new HashSet<>();
         private Instant earliest;
         private Instant latest;
 
-        private DryRun(UUID businessId, Map<String, Integer> columns) {
+        private DryRun(UUID businessId, Map<String, Integer> columns, ZoneId zone, Instant now) {
             this.businessId = businessId;
             this.columns = columns;
+            this.zone = zone;
+            this.now = now;
         }
 
         /**
@@ -340,7 +406,15 @@ public class CsvImportService {
             rowCount++;
 
             try {
-                TransactionIngestRequest request = toRequest(businessId, row, columns);
+                if (isCancelled(row, columns)) {
+                    skippedCancelled++;
+                    return true;
+                }
+                TransactionIngestRequest request = toRequest(businessId, row, columns, zone);
+                if (request.occurredAt().isAfter(now)) {
+                    skippedFuture++;
+                    return true;
+                }
                 valid++;
                 customers.add(request.customerRef());
                 Instant occurredAt = request.occurredAt();
@@ -361,7 +435,8 @@ public class CsvImportService {
 
         private ImportPreviewResponse.PreviewStats toStats() {
             return new ImportPreviewResponse.PreviewStats(
-                    rowCount, valid, invalid, failures, customers.size(), earliest, latest, truncated);
+                    rowCount, valid, invalid, failures, customers.size(), earliest, latest, truncated,
+                    skippedCancelled, skippedFuture);
         }
     }
 

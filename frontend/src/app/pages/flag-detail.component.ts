@@ -3,6 +3,7 @@ import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { FlagDetail, OfferFailureCode } from '../core/api.models';
+import { VocabularyService } from '../core/vocabulary.service';
 import { StatusPillComponent } from '../shared/status-pill.component';
 import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
 
@@ -453,6 +454,7 @@ import { VisitSparklineComponent } from '../shared/visit-sparkline.component';
 })
 export class FlagDetailComponent {
   private readonly api = inject(ApiService);
+  private readonly vocabulary = inject(VocabularyService);
 
   readonly flag = signal<FlagDetail | null>(null);
   readonly loading = signal(true);
@@ -545,7 +547,7 @@ export class FlagDetailComponent {
       case 'FIXED_AMOUNT_OFF':
         return `${detail.dealValue} off`;
       case 'FREE_ITEM':
-        return `${detail.dealValue} free item(s)`;
+        return `${detail.dealValue} ${this.vocabulary.words().freeItemLabel}(s)`;
       default:
         return '—';
     }

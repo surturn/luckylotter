@@ -144,8 +144,9 @@ never over HTTP. A command is a short-lived run of the same image under the
 ```bash
 # Create a business and its first admin. Prints a temporary password once.
 docker compose run --rm --no-deps backend --spring.profiles.active=operator \
-  create-business --name="Kaldi Coffee" --admin-email=owner@example.com \
-  --currency=KES --timezone=Africa/Nairobi --deal-value=15 \
+  create-business --name="Kaldi Coffee" --type=cafe-restaurant \
+  --admin-email=owner@example.com --currency=KES --timezone=Africa/Nairobi \
+  --deal-value=15 \
   [--deal-type=PERCENT_OFF|FIXED_AMOUNT_OFF|FREE_ITEM] [--reply-to=hello@example.com]
 
 # New temporary password; ends every live session for that admin.
@@ -158,6 +159,41 @@ docker compose run --rm --no-deps backend --spring.profiles.active=operator \
 The temporary password goes to stdout only, never the log. The admin is held on
 the change-password screen until they choose their own (the API answers 403 to
 everything else), and a change or reset invalidates every older token.
+
+## Business types
+
+The engine is the same for every business: each customer is judged against
+their own rhythm. What differs is how long a rhythm is, so `--type` (required)
+picks the starting settings and the wording. Everything it sets stays editable
+in Trigger settings.
+
+| `--type` | Typical rhythm | Flag threshold clamp | Cooldown | Return window | Words |
+|---|---|---|---|---|---|
+| `cafe-restaurant` | weekly | 3 to 60 days | 30 days | 14 days | customer, visit |
+| `barbershop` | 4 weeks | 7 to 120 days | 45 days | 21 days | client, visit |
+| `hair-salon` | 7 weeks | 14 to 180 days | 60 days | 28 days | client, appointment |
+| `spa-wellness` | 9 weeks | 21 to 240 days | 90 days | 35 days | client, appointment |
+| `other` | monthly | 7 to 120 days | 45 days | 21 days | customer, visit |
+
+The ceiling matters most: a 60-day cap on a client who comes every nine weeks
+would flag them before they were ever due back. The offer email's wording
+follows the type too ("your usual silk press", "mention this code when you
+book").
+
+### Importing a booking system's export
+
+`docs/sample-booking-export.csv` shows the shape. In the mapping step:
+
+- Map **Status** if the export has one. Cancelled, no-show, void and refunded
+  rows are left out, not counted as visits, and the result says how many.
+- Rows dated in the **future** are left out too (bookings are not visits yet),
+  and counted.
+- Dates with no time zone are read in the business's timezone.
+- A year of history is worth importing at onboarding: a client needs three
+  visits before they can be flagged, which is about six months for a spa.
+
+The demo can be started as any type: set `SEED_TYPE` to `barbershop`,
+`hair-salon` or `spa-wellness` (default `cafe-restaurant`).
 
 ## Development
 

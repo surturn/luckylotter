@@ -1,6 +1,7 @@
 package com.lucklotter.service;
 
 import com.lucklotter.AbstractWebTest;
+import com.lucklotter.domain.BusinessType;
 import com.lucklotter.domain.DealType;
 import com.lucklotter.repo.AdminUserRepository;
 import com.lucklotter.repo.BusinessRepository;
@@ -101,6 +102,46 @@ class ProvisioningServiceTest extends AbstractWebTest {
     }
 
     @Test
+    @DisplayName("the business type sets the starting settings, so a spa is not given a cafe's 60-day ceiling")
+    void typeSeedsTheStartingSettings() {
+        var result = provisioning.createBusiness(new ProvisioningService.NewBusiness(
+                "Serene Spa", BusinessType.SPA_WELLNESS, "owner@serene.test", "KES", "Africa/Nairobi",
+                null, new BigDecimal("15"), null));
+
+        var business = businesses.findById(result.businessId()).orElseThrow();
+        assertThat(business.getBusinessType()).isEqualTo(BusinessType.SPA_WELLNESS);
+        assertThat(business.getMaxThresholdDays()).isEqualTo(240);
+        assertThat(business.getMinThresholdDays()).isEqualTo(21);
+        assertThat(business.getRecoveryWindowDays()).isEqualTo(35);
+        assertThat(business.getOfferCooldownDays()).isEqualTo(90);
+        // The deal value is the business's own decision and is not a preset.
+        assertThat(business.getDefaultDealValue()).isEqualByComparingTo("15");
+    }
+
+    @Test
+    @DisplayName("a deal type given explicitly beats the preset's")
+    void explicitDealTypeWins() {
+        var result = provisioning.createBusiness(new ProvisioningService.NewBusiness(
+                "Kings", BusinessType.BARBERSHOP, "owner@kings.test", "KES", "Africa/Nairobi",
+                DealType.FIXED_AMOUNT_OFF, new BigDecimal("200"), null));
+
+        assertThat(businesses.findById(result.businessId()).orElseThrow().getDefaultDealType())
+                .isEqualTo(DealType.FIXED_AMOUNT_OFF);
+    }
+
+    @Test
+    @DisplayName("a business cannot be created without saying what kind it is")
+    void typeIsRequired() {
+        assertThatThrownBy(() -> provisioning.createBusiness(new ProvisioningService.NewBusiness(
+                "Kings", null, "owner@kings.test", "KES", "Africa/Nairobi",
+                null, new BigDecimal("15"), null)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("type is required")
+                .hasMessageContaining("barbershop");
+        assertThat(businesses.count()).isZero();
+    }
+
+    @Test
     @DisplayName("resetting or deactivating an unknown address says so")
     void unknownAccountIsReported() {
         assertThatThrownBy(() -> provisioning.resetPassword("nobody@kaldis.test"))
@@ -112,7 +153,7 @@ class ProvisioningServiceTest extends AbstractWebTest {
     private static ProvisioningService.NewBusiness request(
             String email, String currency, String timezone, String dealValue) {
         return new ProvisioningService.NewBusiness(
-                "Kaldi Coffee", email, currency, timezone,
+                "Kaldi Coffee", BusinessType.CAFE_RESTAURANT, email, currency, timezone,
                 DealType.PERCENT_OFF, new BigDecimal(dealValue), "hello@kaldis.test");
     }
 }

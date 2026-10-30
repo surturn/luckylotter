@@ -84,5 +84,8 @@ lucklotter:
     # Demo data (§13). Off by default: it must never run against pilot data,
     # and it is a no-op anyway once a business exists.
     enabled: ${SEED_ENABLED:false}
+    # Which kind of business the demo is: cafe-restaurant, barbershop, hair-salon
+    # or spa-wellness. Sets the scale of every rhythm and spend in the fixture.
+    type: ${SEED_TYPE:cafe-restaurant}
     admin-email: ${SEED_ADMIN_EMAIL:admin@lucklotter.test}
     admin-password: ${SEED_ADMIN_PASSWORD:demo-password-123}

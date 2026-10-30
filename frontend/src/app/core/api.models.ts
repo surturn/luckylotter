@@ -65,6 +65,28 @@ export interface BusinessConfig {
   defaultDealValue: number;
   /** Read-only: a fixed system constant, not per-business config (FR-2). */
   minTransactions: number;
+  businessType: BusinessType;
+  /** The words for this trade, so screens and examples speak its language. */
+  vocabulary: BusinessVocabulary;
+}
+
+/** Mirrors `com.lucklotter.domain.BusinessType`. Chosen at provisioning. */
+export type BusinessType =
+  | 'CAFE_RESTAURANT'
+  | 'BARBERSHOP'
+  | 'HAIR_SALON'
+  | 'SPA_WELLNESS'
+  | 'OTHER';
+
+export interface BusinessVocabulary {
+  customerNoun: string;
+  customerNounPlural: string;
+  visitNoun: string;
+  /** Label for the customer's usual item or service, e.g. "Usual service". */
+  usualLabel: string;
+  freeItemLabel: string;
+  /** A typical gap between visits for this trade; used only for worked examples. */
+  typicalCadenceDays: number;
 }
 
 export interface BusinessConfigUpdate {
@@ -497,6 +519,10 @@ export interface ImportPreviewStats {
   latest: string | null;
   /** True when the file has more rows than can be imported in one go. */
   truncated: boolean;
+  /** Rows that would be left out as cancelled or no-show. */
+  skippedCancelled: number;
+  /** Rows that would be left out because they are dated in the future. */
+  skippedFuture: number;
 }
 
 /**
@@ -524,4 +550,8 @@ export interface ImportResult {
   duplicates: number;
   failed: number;
   errors: ImportRowError[];
+  /** Left out because their status says the customer did not come. */
+  skippedCancelled: number;
+  /** Left out because they are dated in the future: bookings, not visits. */
+  skippedFuture: number;
 }

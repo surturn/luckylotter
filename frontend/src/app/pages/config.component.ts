@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { BusinessConfig } from '../core/api.models';
+import { VocabularyService } from '../core/vocabulary.service';
 import { ToastService } from '../shared/toast.service';
 
 /**
@@ -215,7 +216,7 @@ import { ToastService } from '../shared/toast.service';
             <select id="dealType" formControlName="defaultDealType">
               <option value="PERCENT_OFF">Percentage off</option>
               <option value="FIXED_AMOUNT_OFF">Fixed amount off</option>
-              <option value="FREE_ITEM">Free item</option>
+              <option value="FREE_ITEM">{{ freeItemTitle() }}</option>
             </select>
           </div>
 
@@ -274,6 +275,7 @@ import { ToastService } from '../shared/toast.service';
 })
 export class ConfigComponent {
   private readonly api = inject(ApiService);
+  protected readonly vocabulary = inject(VocabularyService);
   private readonly toasts = inject(ToastService);
 
   readonly presets = [
@@ -326,12 +328,13 @@ export class ConfigComponent {
    */
   example(): string {
     const { sensitivityMultiplier, minThresholdDays, maxThresholdDays } = this.form.getRawValue();
-    const typicalGap = 7;
+    const typicalGap = this.typicalGap();
     const raw = typicalGap * Number(sensitivityMultiplier);
     const min = Number(minThresholdDays);
     const max = Number(maxThresholdDays);
     const clamped = Math.min(Math.max(raw, min), max);
-    const base = `A customer who normally visits every ${typicalGap} days is flagged after ${clamped.toFixed(0)} quiet days`;
+    const noun = this.vocabulary.words().customerNoun;
+    const base = `A ${noun} who normally visits every ${typicalGap} days is flagged after ${clamped.toFixed(0)} quiet days`;
 
     // When a clamp overrides the multiplier, say which one — otherwise changing
     // the sensitivity appears to do nothing and the screen looks broken.
@@ -352,7 +355,7 @@ export class ConfigComponent {
    */
   cooldownExample(): string {
     const { offerCooldownDays, offerCooldownMultiplier } = this.form.getRawValue();
-    const typicalGap = 7;
+    const typicalGap = this.typicalGap();
     const floor = Number(offerCooldownDays);
     const scaled = typicalGap * Number(offerCooldownMultiplier);
     const applied = Math.max(floor, scaled);
@@ -362,7 +365,7 @@ export class ConfigComponent {
     }
     const base = `That same customer can't get another offer for ${applied.toFixed(0)} days`;
     if (scaled > floor) {
-      return `${base} — ${offerCooldownMultiplier}× their usual 7-day gap, which is longer than your ${floor}-day minimum.`;
+      return `${base} — ${offerCooldownMultiplier}× their usual ${typicalGap}-day gap, which is longer than your ${floor}-day minimum.`;
     }
     return `${base} — your ${floor}-day minimum, since ${offerCooldownMultiplier}× their usual gap would only be ${scaled.toFixed(0)}.`;
   }
@@ -401,8 +404,19 @@ export class ConfigComponent {
       case 'FIXED_AMOUNT_OFF':
         return 'Amount off';
       default:
-        return 'Number of free items';
+        return `Number of ${this.vocabulary.words().freeItemLabel}s`;
     }
+  }
+
+  /** A typical gap for this trade, for worked examples. */
+  typicalGap(): number {
+    return this.vocabulary.words().typicalCadenceDays;
+  }
+
+  /** The free-deal option, in this trade's words: "Free add-on", "Free item". */
+  freeItemTitle(): string {
+    const label = this.vocabulary.words().freeItemLabel;
+    return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
   clampInvalid(): boolean {
@@ -424,7 +438,8 @@ export class ConfigComponent {
       return `A long window — someone who was going to return anyway may be counted as
               brought back by the offer.`;
     }
-    return `A customer who buys within ${days} days of the offer counts as having come back.`;
+    const noun = this.vocabulary.words().customerNoun;
+    return `A ${noun} who comes back within ${days} days of the offer counts as having come back.`;
   }
 
   invalid(control: 'defaultDealValue' | 'currencyCode'): boolean {
